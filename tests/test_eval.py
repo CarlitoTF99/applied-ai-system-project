@@ -73,6 +73,23 @@ def test_rejection_expectations(res):
     assert signature(rejected) == ("rejected", "empty")
 
 
+def test_failed_case_reports_reason_and_confidence_split(res):
+    from eval.run_eval import CaseResult, confidence_stats, result_text, run_suite, summary_line, tally
+    from collections import Counter
+    cases = [
+        {"id": "ok", "category": "normal", "request": "hype songs for the gym", "expect": {"min_avg_energy": 0.7}},
+        {"id": "bad", "category": "normal", "request": "k-pop for a party", "expect": {"profile_genre": "jazz"}},
+    ]
+    results = run_suite(cases, res, None, 1, 5)
+    assert result_text(results[0]) == "Pass"
+    assert result_text(results[1]) == "Fail - profile_genre: expected jazz, got pop"
+    stats = confidence_stats(results)
+    assert stats["avg_pass"] == pytest.approx(0.87) and stats["avg_fail"] == pytest.approx(0.94)
+    line = summary_line(tally(results, False, Counter()), stats, False)
+    assert line.startswith("1 out of 2 cases passed (50%); offline consistency 100%; average confidence")
+    assert "k-pop for a party" in line          # failed cases count as struggling even with high confidence
+
+
 def test_main_writes_report_offline(tmp_path, capsys):
     cases = tmp_path / "cases.json"
     cases.write_text('{"cases": ['
@@ -84,4 +101,10 @@ def test_main_writes_report_offline(tmp_path, capsys):
     printed.encode("ascii")
     assert "Cases passed:       2/2" in printed and "Consistency:        2/2" in printed
     text = report.read_text(encoding="utf-8")
-    assert "| gym | normal |" in text and "Mode: **offline**" in text
+    assert "Mode: **offline**" in text
+    assert "2 out of 2 cases passed (100%); offline consistency 100%; average confidence 0.87;" in text
+    assert "| # | Test Input | Evaluation Criteria | Result | Confidence | Notes |" in text
+    assert ("| 1 | hype songs for the gym | avg energy >= 0.7; explanation grounded | Pass | 0.87 (high) "
+            "| favorite_mood 'hype' -> 'energetic' |") in text
+    assert "| 2 | \"\" | rejected as empty | Pass | n/a (rejected) | rejected by `empty` guardrail" in text
+    assert "| Average confidence, failed cases | n/a (no failed cases) |" in text

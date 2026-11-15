@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from src import config
+from src.confidence import Confidence, compute_confidence
 from src.explainer import explain_llm, explain_template
 from src.guardrails import build_music_vocabulary, check_explanation, check_input, validate_prefs
 from src.labels import LabelSpace
@@ -87,6 +88,8 @@ class AgentResult:
     explanation: str = ""
     explanation_source: str = "template"          # "llm" | "template"
     explanation_note: str = ""
+    llm_used: bool = False                        # an LLM was available at the start of the run
+    confidence: Optional[Confidence] = None       # computed, never self-rated by the LLM
 
 
 def _engine_prefs(prefs: Dict) -> Dict:
@@ -225,10 +228,24 @@ def run_agent(request, res: Resources, llm: Optional[GeminiClient] = None, k: in
         ok, reason = check_explanation(explanation, result_titles, catalog_titles, doc_ids)
         log.info(f"template explanation used; output guardrail check: {reason}", step="explain")
 
+    # Confidence: computed from the run's facts, never self-rated by the LLM.
+    # An LLM fallback only counts when an LLM was available; --offline is a choice, not a failure.
+    llm_fallback = use_llm and (plan_source == "offline" or source == "template")
+    confidence = compute_confidence(
+        top_ratio=final.ratio,
+        top_doc_score=docs[0][1] if docs else 0.0,
+        repairs=len(repairs),
+        retries=len(attempts) - 1,
+        llm_fallback=llm_fallback,
+    )
+    log.info(f"confidence {confidence.score:.2f} ({confidence.label}): {confidence.summary}; "
+             f"lowered by: {'; '.join(confidence.lowered_by) or 'nothing'}", step="confidence")
+
     return AgentResult(
         status="ok", request=request, run_id=run_id, plan_source=plan_source, docs=docs,
         song_hits=song_hits, repairs=repairs, rationale=rationale, attempts=attempts, final=final,
         caveats=caveats, explanation=explanation, explanation_source=source, explanation_note=note,
+        llm_used=use_llm, confidence=confidence,
     )
 
 
@@ -298,6 +315,15 @@ def print_result(result: AgentResult, offline: bool, table: bool) -> None:
     out(f"\n[6] Explanation ({label})" + (f"  [{result.explanation_note}]" if result.explanation_note else ""))
     for line in result.explanation.splitlines():
         out(f"    {line}")
+
+    conf = result.confidence
+    out(f"\n[7] Confidence: {conf.score:.2f} ({conf.label}) - {conf.summary}")
+    if conf.lowered_by:
+        out("    lowered by:")
+        for reason in conf.lowered_by:
+            out(f"      {reason}")
+    else:
+        out("    nothing lowered it")
     out(f"\n(run {result.run_id} logged to logs/agent.log)")
 
 

@@ -345,3 +345,54 @@ one-per-artist cap (right now it only changes one song across all 8 profiles),
 let users list several genres and dislikes, and test
 with a much bigger, more balanced catalog to see whether the biases I found
 shrink or just change shape.
+
+---
+
+## 10. Evaluation: VibeMatch Agent (final project)
+
+Sections 1-9 describe the Module 3 scoring engine. The final project wraps that
+engine, unchanged, in an AI agent: retrieval, Gemini or offline planning,
+guardrails, a self-check, and a computed confidence score. This section
+evaluates the agent.
+
+**Summary**
+
+- **Tests:** 118 of 118 pytest tests pass (all offline; Gemini is replaced by
+  fakes).
+- **Automated eval:** 15 of 15 eval cases passed (100%); offline consistency
+  100%; average confidence 0.78. Over 45 runs: 12 guardrail rejections, 18
+  repairs, 18 self-check retries, 0 LLM fallbacks.
+- **Human review:** 5 of 6 passed (avg fit 4.5/5).
+- **Where it struggled:** on conflicting or vague requests, confidence dropped
+  below 0.75: "rock but not too loud" (0.44), "sad but energetic" (0.62),
+  "play me some songs" (0.71). The one human failure, "k-pop for a party",
+  had 0.94 confidence. Mapping k-pop to generic pop was logically correct but
+  missed the vibe.
+- **Accuracy improved** after the eval exposed four bugs:
+  - explicit energy limits weren't enforced;
+  - the best-attempt tie-break rewarded a worse label swap;
+  - vague requests got arbitrary "ambient / angry" defaults;
+  - a genre the user named could vanish from the top 3.
+
+  All four were fixed and are now covered by tests and eval cases.
+
+The full automated report is in [eval/results.md](eval/results.md).
+
+**Human evaluation** (my own ratings of real offline runs; full sheet in
+[eval/human_eval.md](eval/human_eval.md)):
+
+| # | Request | Top 3 songs | Confidence | Fits request? (1-5) | Explanation accurate? (Y/N) | Pass/Fail | My notes |
+|---|---|---|---|---|---|---|---|
+| 1 | something chill for studying on a rainy night | 1. Midnight Coding - LoRoom<br>2. Library Rain - Paper Lanterns<br>3. Focus Flow - LoRoom | 0.99 (high) |5|Y|Pass|  Perfect for a study sesh |
+| 2 | hype songs for the gym | 1. Gym Hero - Max Pulse<br>2. Sunrise City - Neon Echo<br>3. Fuego en la Plaza - Los Faroles | 0.87 (high) | 5|Y|Pass|It's definetly meant for a gym sesh  |
+| 3 | sad songs but not too slow | 1. Rust in the Rain - Delta Marrow<br>2. Afterglow Static - Kaito Mere<br>3. Night Drive Loop - Neon Echo | 0.66 (medium) |5|Y  |Pass  |Good for a depressing day  |
+| 4 | k-pop for a party | 1. Sunrise City - Neon Echo<br>2. Rooftop Lights - Indigo Parade<br>3. Gym Hero - Max Pulse | 0.94 (high) |2|N|Failed  |Failed to meet the vibes even though logically makes sense  |
+| 5 | relaxing jazz for a dinner party | 1. Coffee Shop Stories - Slow Stereo<br>2. Focus Flow - LoRoom<br>3. Midnight Coding - LoRoom | 0.92 (high) |5| Y |Pass  |Meets the vibes of a cozy jazz dinner party  |
+| 6 | music for a road trip with friends | 1. Dust Road Letters - June Harlan<br>2. Rooftop Lights - Indigo Parade<br>3. Sunrise City - Neon Echo | 0.87 (high) |5| y| Pass |Good for a roadtrip  |
+
+**What this shows:** confidence measures how well the songs fit the profile the
+agent built, not whether that profile captured what the listener meant. A
+high-confidence result can still fail a human, as the k-pop request did. For a
+small catalog, that's an argument for keeping a person in the loop. It's also
+an argument for adding genre-specific songs instead of mapping one genre onto
+another.

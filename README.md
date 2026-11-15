@@ -8,7 +8,7 @@ relevant music knowledge, uses an AI agent to plan and check a listener
 profile, and ranks songs with a transparent scoring engine. Guardrails check
 the request, the plan and the final explanation. The result is a recommender
 whose every pick can be traced to a score breakdown and a cited source. It is
-covered by 111 automated tests and an evaluation suite, and it keeps working,
+covered by 118 automated tests and an evaluation suite, and it keeps working,
 with clear warnings, when the AI model is overloaded, out of quota or
 unavailable.
 
@@ -41,8 +41,11 @@ hand-write a Python profile dict, and genres or moods missing from the catalog
     recommended.
 - **Logging:** every step, retrieved doc, repair, retry and error goes to
   `logs/agent.log`. `--verbose` also prints them to the console.
+- **Confidence score:** every result gets a computed 0-1 confidence (never
+  self-rated by the LLM) with the reasons that lowered it.
 - **Evaluation harness:** `python -m eval.run_eval` runs 15 property-based test
-  cases and reports pass rate, consistency, repairs, retries and fallbacks.
+  cases and reports pass rate, consistency, confidence, repairs, retries and
+  fallbacks. A human review sheet adds ratings of real outputs.
 
 ## Architecture Overview
 
@@ -167,6 +170,7 @@ applied-ai-system-project/
 │   ├── planner.py         # Gemini planner (plan_llm) and offline rule-based planner (plan_offline)
 │   ├── guardrails.py      # input check, plan validation/repair, explanation check
 │   ├── selfcheck.py       # result checks, profile revisions, best-attempt choice
+│   ├── confidence.py      # deterministic 0-1 confidence score
 │   ├── explainer.py       # Gemini explanation and template explanation
 │   ├── llm.py             # Gemini client: timeout, retries, fallback model, never raises
 │   ├── labels.py          # catalog genres/moods and aliases from the knowledge base
@@ -176,8 +180,8 @@ applied-ai-system-project/
 │   └── main.py            # original Module 3 CLI (unchanged)
 ├── knowledge/             # 11 markdown docs: activities, mood families, genre notes
 ├── data/songs.csv         # 20-song catalog
-├── eval/                  # test_cases.json, run_eval.py, results.md
-├── tests/                 # 111 pytest tests (no network)
+├── eval/                  # test_cases.json, run_eval.py, results.md, human_eval.md
+├── tests/                 # 118 pytest tests (no network)
 ├── diagrams/              # architecture.mmd (Mermaid source)
 ├── assets/                # architecture.png
 ├── docs/                  # DESIGN.md (full design), ORIGINAL_PROJECT.md (Module 3 README)
@@ -389,6 +393,10 @@ Request: "something chill for studying on a rainy night"
     #1 Midnight Coding by LoRoom: genre match: lofi, mood match: chill, energy 0.42 vs target 0.41.
     #2 Library Rain by Paper Lanterns: genre match: lofi, mood match: chill, energy 0.35 vs target 0.41.
     [... #3-#5 trimmed ...]
+
+[7] Confidence: 0.99 (high) - top score 98% of max, no repairs, no retries
+    lowered by:
+      -0.01 top score only 98% of max
 ```
 
 | | Offline | LLM (gemini-3.5-flash-lite) |
@@ -539,41 +547,90 @@ recommendations or a stack trace.
 
 ## Testing Summary
 
-**Results**
+**118 of 118 pytest tests pass** (all offline; Gemini is replaced by fakes).
+**15 of 15 eval cases passed (100%); offline consistency 100%; average
+confidence 0.78.** **Human review: 5 of 6 passed (avg fit 4.5/5).**
 
-| Check | Result |
-|---|---|
-| `pytest` | **111 passed**, all offline (Gemini is replaced by fakes) |
-| Eval cases (`python -m eval.run_eval`) | **15/15** passed (52/52 properties) |
-| Consistency across 3 runs | **15/15** identical (expected offline, since the planner is deterministic) |
-| Repairs | 18 over 45 runs (6 per pass) |
-| Self-check retries | 18 over 45 runs (6 per pass), all in the conflicting-request cases |
-| Guardrail rejections | 12 over 45 runs (the 4 reject cases x 3) |
-| Runs with caveats | 12 over 45 runs (4 per pass) |
+The agent struggled in two different ways:
+- **Conflicting or vague requests:** confidence dropped below 0.75 for "rock
+  but not too loud" (0.44), "sad but energetic" (0.62) and "play me some songs"
+  (0.71).
+- **Cultural fit:** "k-pop for a party" got 0.94 confidence but failed human
+  review (fit 2/5). Mapping k-pop to generic pop was logically correct, but it
+  missed the vibe.
 
-**What worked**
+Accuracy improved after the evaluation exposed four bugs (see below):
+explicit energy limits are now enforced, the best-attempt tie-break was fixed,
+vague requests get sensible defaults, and a check confirms that a genre the
+user names stays in the top 3.
 
-- The guardrails and validator turned every silent failure from Module 3 into
-  a visible repair or a helpful message.
-- The offline fallback meant no request ever crashed, even when every Gemini
-  call failed.
-- The output guardrail accepted the real LLM explanation and, in tests,
-  rejected explanations that named songs outside the results.
-- All 5 normal eval cases passed on their first attempt, with no false
-  self-check alarms.
+### Automated evaluation
 
-**What didn't work at first, and how it was handled**
+This table shows 10 of the 15 cases. The full report, with every case and its
+details, is in [eval/results.md](eval/results.md).
 
-- **Gemini failures in live runs** (all from `logs/agent.log`):
-  - a fallback model name had been retired (**404** "no longer available to
-    new users"); it was not retried, and the agent switched to the offline
-    plan;
-  - the main model was overloaded (**503/504**); calls were retried after 2s
-    and 5s, then the fallback model answered in 0.77s;
-  - a **429 quota** error was not retried, and the fallback model answered in
-    0.91s;
-  - in one run every attempt failed, and the offline plan still returned the
-    same correct top 3.
+| # | Test Input | Evaluation Criteria | Result | Confidence | Notes |
+|---|---|---|---|---|---|
+| 1 | something chill for studying on a rainy night | avg energy <= 0.5; #1 genre in lofi/ambient/jazz; acoustic = yes; no caveat; explanation grounded | Pass | 0.99 (high) | clean run |
+| 2 | hype songs for the gym | avg energy >= 0.7; #1 genre in pop/rock/metal/hip-hop; acoustic = no; explanation grounded | Pass | 0.87 (high) | favorite_mood 'hype' -> 'energetic' |
+| 6 | sad songs but not too slow | avg valence <= 0.45; a top-3 mood in sad/melancholy/moody; target energy >= 0.5; #1 energy >= 0.45 or caveat; explanation grounded | Pass | 0.66 (medium) | 2 self-check retries, used attempt #1; caveat shown |
+| 7 | k-pop for a party | profile genre = pop; repair logged for 'k-pop'; avg energy >= 0.7; avg valence >= 0.65; explanation grounded | Pass | 0.94 (high) | favorite_genre 'k-pop' -> 'pop' |
+| 8 | sad but energetic | target valence <= 0.4; target energy >= 0.5; a top-3 mood in sad/melancholy/moody/angry/dramatic; #1 energy >= 0.45 or caveat; explanation grounded | Pass | 0.62 (medium) | 2 self-check retries, used attempt #1; caveat shown |
+| 9 | country songs about heartbreak | profile genre = country; profile mood = sad; country in top 3 or caveat; a top-3 mood in sad/melancholy/moody; explanation grounded | Pass | 0.66 (medium) | favorite_mood 'heartbreak' -> 'sad' |
+| 10 | rock but not too loud | #1 energy <= 0.65 or caveat; rock in top 3 or caveat; explanation grounded | Pass | 0.44 (low) | 2 self-check retries, used attempt #3; caveat shown |
+| 11 | play me some songs | caveat shown; explanation grounded | Pass | 0.71 (medium) | caveat shown |
+| 12 | "" | rejected as empty | Pass | n/a (rejected) | rejected by `empty` guardrail before retrieval |
+| 14 | what's the weather tomorrow | rejected as off_topic | Pass | n/a (rejected) | rejected by `off_topic` guardrail before retrieval |
+
+Totals over 45 runs (15 cases x 3): 12 guardrail rejections, 18 repairs, 18
+self-check retries, 12 runs with caveats, and 0 LLM fallbacks (the eval runs
+offline). Case 9 passes every property but scores only 0.66: its #1 song is
+blues, not country, and the confidence score catches what the pass/fail checks
+don't.
+
+### Human evaluation
+
+I ran 6 requests offline and rated each one myself. The criteria: does it fit
+the request's vibe, does the explanation mention only real results and match
+their scoring reasons, and would I actually play these songs. The full sheet,
+including each run's explanation and reasons, is in
+[eval/human_eval.md](eval/human_eval.md).
+
+| # | Request | Top 3 songs | Confidence | Fits request? (1-5) | Explanation accurate? (Y/N) | Pass/Fail | My notes |
+|---|---|---|---|---|---|---|---|
+| 1 | something chill for studying on a rainy night | 1. Midnight Coding - LoRoom<br>2. Library Rain - Paper Lanterns<br>3. Focus Flow - LoRoom | 0.99 (high) |5|Y|Pass|  Perfect for a study sesh |
+| 2 | hype songs for the gym | 1. Gym Hero - Max Pulse<br>2. Sunrise City - Neon Echo<br>3. Fuego en la Plaza - Los Faroles | 0.87 (high) | 5|Y|Pass|It's definetly meant for a gym sesh  |
+| 3 | sad songs but not too slow | 1. Rust in the Rain - Delta Marrow<br>2. Afterglow Static - Kaito Mere<br>3. Night Drive Loop - Neon Echo | 0.66 (medium) |5|Y  |Pass  |Good for a depressing day  |
+| 4 | k-pop for a party | 1. Sunrise City - Neon Echo<br>2. Rooftop Lights - Indigo Parade<br>3. Gym Hero - Max Pulse | 0.94 (high) |2|N|Failed  |Failed to meet the vibes even though logically makes sense  |
+| 5 | relaxing jazz for a dinner party | 1. Coffee Shop Stories - Slow Stereo<br>2. Focus Flow - LoRoom<br>3. Midnight Coding - LoRoom | 0.92 (high) |5| Y |Pass  |Meets the vibes of a cozy jazz dinner party  |
+| 6 | music for a road trip with friends | 1. Dust Road Letters - June Harlan<br>2. Rooftop Lights - Indigo Parade<br>3. Sunrise City - Neon Echo | 0.87 (high) |5| y| Pass |Good for a roadtrip  |
+
+The only failure, "k-pop for a party", had one of the highest confidence
+scores (0.94). Confidence measures how well the results fit the profile the
+agent built, not whether that profile captures what the listener meant. That
+gap is why the human review is part of the evaluation.
+
+### Reliability mechanisms
+
+| Mechanism | Input | Behavior | Result |
+|---|---|---|---|
+| Input guardrail (empty) | `""` | Deterministic check, before retrieval or any LLM call | "Tell me what you'd like to hear, e.g. 'upbeat songs for a road trip'.", exit code 2 |
+| Input guardrail (off-topic) | "what's the weather tomorrow" | No music words and no knowledge-doc match | "I can only help with music recommendations - try describing a mood, activity, or genre.", exit code 2 |
+| Validator repair | "k-pop for a party" | Unknown genre mapped using the alias list in `genre_notes.md` | `favorite_genre 'k-pop' -> 'pop'`, shown to the user. #1 Sunrise City scores 8.41/8.5, up from 5.87 in Module 3 |
+| Clamping | A plan with `target_energy: 1.4` (direct `validate_prefs` call) | Out-of-range values are clamped, because `score_song` raises an error outside 0-1 | `target_energy 1.4 clamped to 1`, and the run completes |
+| Self-check retry | "sad songs but not too slow" | #1 song energy 0.33 is below the requested floor of 0.50, so 2 revisions are tried | Attempt 1 kept (smallest violation) plus a caveat that no song fits both style and energy; confidence 0.66 |
+| Output guardrail | An explanation naming Library Rain for the gym results (direct `check_explanation` call) | Rejects any catalog title that isn't in the results | `mentions 'Library Rain', which is not in the results`, so the template is used. The live LLM explanation in run `4e4bf7` passed |
+| LLM failure: 404 | Fallback model `gemini-2.5-flash-lite` (run `4df554`) | 404 "no longer available to new users" is **not retried** | Offline plan; same top 3 as the offline run (Midnight Coding 8.33) |
+| LLM failure: 503/504 | Main model overloaded (run `4e4bf7`, plan step) | 504, wait 2s, 504, wait 5s, 503, then the fallback model | `gemini-3.5-flash-lite` succeeded in 0.77s |
+| LLM failure: 429 | Quota exceeded (run `4e4bf7`, explain step) | 429 is **not retried**; the fallback model gets one attempt | Fallback succeeded in 0.91s; its explanation passed the output guardrail |
+| LLM failure: all attempts | Every call 503/504 (run `3f3be6`) | 6 failed attempts across plan and explain | Offline plan and template explanation; correct top 3 (Midnight Coding 8.33, Library Rain 8.25, Focus Flow 7.32) |
+| Confidence score | "rock but not too loud" vs. "something chill for studying on a rainy night" | Computed from score ratio, retrieval strength, repairs, retries and LLM fallback; never self-rated by the LLM | 0.44 (low: -0.20 top score only 66% of max, -0.20 two retries, -0.16 weak retrieval) vs. 0.99 (high) |
+
+### What didn't work at first, and how it was handled
+
+- **Gemini failures in live runs:** retired model names (404), server overload
+  (503/504) and quota limits (429), all handled as shown in the table above.
+  No request ever crashed.
 - **Bugs the evaluation exposed.** My first eval passed 100% while these bugs
   existed, because its expectations were too loose. Stricter properties caught
   all four:
@@ -599,14 +656,15 @@ recommendations or a stack trace.
   measures fit to the *profile*, not to the *request*, so I kept the threshold
   and added checks against the request instead.
 
-**What I learned**
+### What I learned
 
 - An evaluation is only as good as its expectations. A suite that passes 100%
-  can still miss real bugs.
+  can still miss real bugs, and a high-confidence answer can still fail a
+  human.
 - With a small model plus retries, fallbacks and an offline path, the system
   stays reliable even when the API isn't.
-- A good error message should say what the system couldn't do, not just pick
-  something and hide the problem.
+- A good error message says what the system couldn't do, instead of picking
+  something and hiding the problem.
 
 ## Reflection
 

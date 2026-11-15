@@ -19,6 +19,7 @@ import argparse
 import json
 import logging
 import sys
+import textwrap
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -26,6 +27,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 from src.agent import AgentResult, build_llm, load_resources, run_agent, to_ascii
+from src.confidence import HIGH as HIGH_CONFIDENCE
 from src.logging_setup import LOGGER_NAME, configure, get_run_logger
 
 EVAL_DIR = Path(__file__).resolve().parent
@@ -278,18 +280,141 @@ def counter_rows(m: Dict, runs: int, llm_used: bool) -> List[Tuple[str, int]]:
     return rows
 
 
+def _fmt(value) -> str:
+    if isinstance(value, list):
+        return "/".join(value)
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    return str(value)
+
+
+CRITERIA_TEXT = {
+    "min_avg_energy": "avg energy >= {}",
+    "max_avg_energy": "avg energy <= {}",
+    "min_avg_valence": "avg valence >= {}",
+    "max_avg_valence": "avg valence <= {}",
+    "min_target_energy": "target energy >= {}",
+    "max_target_energy": "target energy <= {}",
+    "min_target_valence": "target valence >= {}",
+    "max_target_valence": "target valence <= {}",
+    "top1_genre_in": "#1 genre in {}",
+    "top1_mood_in": "#1 mood in {}",
+    "any_top3_mood_in": "a top-3 mood in {}",
+    "profile_genre": "profile genre = {}",
+    "profile_mood": "profile mood = {}",
+    "likes_acoustic": "acoustic = {}",
+    "repair_contains": "repair logged for '{}'",
+    "min_top1_energy_or_caveat": "#1 energy >= {} or caveat",
+    "max_top1_energy_or_caveat": "#1 energy <= {} or caveat",
+    "genre_in_top3_or_caveat": "{} in top 3 or caveat",
+    "rejected": "rejected as {}",
+}
+
+
+def describe_criteria(case: Dict) -> str:
+    """Plain-English list of what a case checks."""
+    parts = []
+    for name, value in case["expect"].items():
+        if name == "has_caveat":
+            parts.append("caveat shown" if value else "no caveat")
+        else:
+            parts.append(CRITERIA_TEXT[name].format(_fmt(value)))
+    if "rejected" not in case["expect"]:
+        parts.append("explanation grounded")
+    return "; ".join(parts)
+
+
+def result_text(r: "CaseResult") -> str:
+    if r.passed:
+        return "Pass"
+    reasons = [f"{p.name}: expected {_fmt(p.expected)}, got {p.actual}" for p in r.properties if not p.passed]
+    return "Fail - " + "; ".join(reasons)
+
+
+def notes_text(r: "CaseResult") -> str:
+    first = r.runs[0]
+    if first.status != "ok":
+        notes = [f"rejected by `{first.reject_rule}` guardrail before retrieval"]
+    else:
+        notes = [repair.split(" (")[0] for repair in first.repairs]
+        retries = len(first.attempts) - 1
+        if retries:
+            notes.append(f"{retries} self-check retr{'ies' if retries != 1 else 'y'}, used attempt #{first.final.number}")
+        if first.caveats:
+            notes.append("caveat shown")
+        if first.llm_used and (first.plan_source == "offline" or first.explanation_source == "template"):
+            notes.append("LLM fell back to offline")
+        if not notes:
+            notes = ["clean run"]
+    if not r.consistent:
+        notes.append("results differed between runs")
+    return "; ".join(notes)
+
+
+def confidence_text(run: AgentResult) -> str:
+    if run.confidence is None:
+        return "n/a (rejected)"
+    return f"{run.confidence.score:.2f} ({run.confidence.label})"
+
+
+def _mean(values: List[float]) -> Optional[float]:
+    return sum(values) / len(values) if values else None
+
+
+def confidence_stats(results: List["CaseResult"]) -> Dict:
+    """Average confidence over accepted cases (run 1), overall and split by pass/fail; rejected cases have none."""
+    scored = [(r, r.runs[0].confidence.score) for r in results if r.runs[0].confidence is not None]
+    struggling = sorted(
+        (item for item in scored if item[0].runs[0].confidence.label != "high" or not item[0].passed),
+        key=lambda item: item[1],
+    )
+    return {
+        "avg": _mean([s for _, s in scored]),
+        "avg_pass": _mean([s for r, s in scored if r.passed]),
+        "avg_fail": _mean([s for r, s in scored if not r.passed]),
+        "scored_cases": len(scored),
+        "struggling": struggling,
+    }
+
+
+def _avg_text(value: Optional[float], empty: str) -> str:
+    return f"{value:.2f}" if value is not None else empty
+
+
+def summary_line(m: Dict, stats: Dict, llm_used: bool) -> str:
+    """One sentence: pass rate, consistency, average confidence and where the agent struggled."""
+    mode_word = "LLM-mode" if llm_used else "offline"
+    if stats["struggling"]:
+        cases = ", ".join(
+            f"\"{r.case['request']}\" ({s:.2f}: {r.runs[0].confidence.lowered_by[0].split(' ', 1)[1]})"
+            for r, s in stats["struggling"]
+        )
+        struggle = f"the agent struggled when confidence fell below {HIGH_CONFIDENCE:.2f}: {cases}"
+    else:
+        struggle = "the agent did not struggle: every accepted case had high confidence"
+    return (f"{m['cases_passed']} out of {m['cases']} cases passed ({_pct(m['cases_passed'], m['cases'])}); "
+            f"{mode_word} consistency {_pct(m['consistent'], m['cases'])}; "
+            f"average confidence {_avg_text(stats['avg'], 'n/a')}; {struggle}.")
+
+
+def _cell(text: str) -> str:
+    return str(text).replace("|", "\\|").replace("\n", " ")
+
+
 def print_summary(results: List[CaseResult], m: Dict, mode: str, runs: int, llm_used: bool) -> None:
     out = lambda s="": print(to_ascii(s))
     width = 78
+    stats = confidence_stats(results)
     out("=" * width)
     out(f"VibeMatch evaluation  |  mode: {mode}  |  {m['cases']} cases x {runs} runs")
     out("=" * width)
-    out(f"{'case':<20}{'category':<9}{'request':<28}{'result':<7}{'props':<7}{'consistent'}")
+    out(f"{'case':<20}{'category':<9}{'request':<26}{'result':<7}{'conf':<7}{'consistent'}")
     out("-" * width)
     for r in results:
-        passed = sum(p.passed for p in r.properties)
-        out(f"{_short(r.case['id'], 19):<20}{r.case['category']:<9}{_short(r.case['request'], 26):<28}"
-            f"{'PASS' if r.passed else 'FAIL':<7}{f'{passed}/{len(r.properties)}':<7}{'yes' if r.consistent else 'NO'}")
+        conf = r.runs[0].confidence
+        out(f"{_short(r.case['id'], 19):<20}{r.case['category']:<9}{_short(r.case['request'], 24):<26}"
+            f"{'PASS' if r.passed else 'FAIL':<7}{(f'{conf.score:.2f}' if conf else 'n/a'):<7}"
+            f"{'yes' if r.consistent else 'NO'}")
     failures = [(r, p) for r in results for p in r.properties if not p.passed]
     if failures:
         out("-" * width)
@@ -301,13 +426,21 @@ def print_summary(results: List[CaseResult], m: Dict, mode: str, runs: int, llm_
     out(f"Properties passed:  {m['properties_passed']}/{m['properties']} ({_pct(m['properties_passed'], m['properties'])})")
     out(f"Consistency:        {m['consistent']}/{m['cases']} cases identical across {runs} runs "
         f"({_pct(m['consistent'], m['cases'])})")
+    out(f"Avg confidence:     {_avg_text(stats['avg'], 'n/a')} overall, "
+        f"{_avg_text(stats['avg_pass'], 'n/a')} passed, {_avg_text(stats['avg_fail'], 'n/a (no failures)')} failed "
+        f"({stats['scored_cases']} accepted cases; rejected cases have no confidence)")
     out(f"Counters over all {m['runs']} runs (per pass = total / {runs}):")
     for label, value in counter_rows(m, runs, llm_used):
         out(f"  {label:<34}{value:>5}   per pass {value / runs:.1f}")
+    out("-" * width)
+    out(textwrap.fill("Summary: " + summary_line(m, stats, llm_used), width))
     out("=" * width)
 
 
 def write_report(path: Path, results: List[CaseResult], m: Dict, mode: str, runs: int, llm_used: bool) -> None:
+    stats = confidence_stats(results)
+    fallbacks = (f"{m['llm_plan_fallbacks']} plan, {m['llm_explain_fallbacks']} explanation"
+                 if llm_used else "0 (offline run: no LLM calls were made)")
     lines = [
         "# VibeMatch Evaluation Results",
         "",
@@ -317,20 +450,48 @@ def write_report(path: Path, results: List[CaseResult], m: Dict, mode: str, runs
         "",
         "## Summary",
         "",
+        summary_line(m, stats, llm_used),
+        "",
         "| Metric | Value |",
         "|---|---|",
         f"| Cases passed | {m['cases_passed']}/{m['cases']} ({_pct(m['cases_passed'], m['cases'])}) |",
         f"| Properties passed | {m['properties_passed']}/{m['properties']} ({_pct(m['properties_passed'], m['properties'])}) |",
         f"| Consistency (identical top 5 / rejection across {runs} runs) | {m['consistent']}/{m['cases']} ({_pct(m['consistent'], m['cases'])}) |",
+        f"| Average confidence (accepted cases, run 1) | {_avg_text(stats['avg'], 'n/a')} |",
+        f"| Average confidence, passed cases | {_avg_text(stats['avg_pass'], 'n/a')} |",
+        f"| Average confidence, failed cases | {_avg_text(stats['avg_fail'], 'n/a (no failed cases)')} |",
+        "",
+        "Confidence is computed, never self-rated by the LLM: it starts at 1.0 and loses points for a top score "
+        "below the maximum, a weak knowledge-base match, plan repairs, self-check retries and LLM fallbacks "
+        "(see `src/confidence.py`). Rejected requests have no confidence.",
+        "",
+        "## Results by case",
+        "",
+        "| # | Test Input | Evaluation Criteria | Result | Confidence | Notes |",
+        "|---|---|---|---|---|---|",
     ]
-    for label, value in counter_rows(m, runs, llm_used):
-        lines.append(f"| {label} (all runs) | {value} ({value / runs:.1f} per pass) |")
-    lines += ["", "## Cases", "", "| Case | Category | Request | Result | Properties | Consistent |", "|---|---|---|---|---|---|"]
-    for r in results:
-        passed = sum(p.passed for p in r.properties)
-        request = _short(r.case["request"], 60).replace("|", "\\|")
-        lines.append(f"| {r.case['id']} | {r.case['category']} | {request} | {'PASS' if r.passed else '**FAIL**'} "
-                     f"| {passed}/{len(r.properties)} | {'yes' if r.consistent else '**no**'} |")
+    for number, r in enumerate(results, start=1):
+        lines.append(f"| {number} | {_cell(_short(r.case['request'], 70))} | {_cell(describe_criteria(r.case))} "
+                     f"| {_cell(result_text(r))} | {confidence_text(r.runs[0])} | {_cell(notes_text(r))} |")
+    lines += [
+        "",
+        "## Counts",
+        "",
+        f"Totals over all {m['runs']} runs ({runs} per case):",
+        "",
+        "| Count | Total | Per pass |",
+        "|---|---|---|",
+        f"| Guardrail rejections | {m['rejections']} | {m['rejections'] / runs:.1f} |",
+        f"| Repairs | {m['repairs']} | {m['repairs'] / runs:.1f} |",
+        f"| Self-check retries | {m['selfcheck_retries']} | {m['selfcheck_retries'] / runs:.1f} |",
+        f"| Runs with caveats | {m['runs_with_caveats']} | {m['runs_with_caveats'] / runs:.1f} |",
+        f"| LLM fallbacks to offline | {fallbacks} | |",
+    ]
+    if llm_used:
+        lines += [
+            f"| Gemini API retries (5xx/timeout) | {m['api_retries']} | {m['api_retries'] / runs:.1f} |",
+            f"| Fallback model used | {m['fallback_model_used']} | {m['fallback_model_used'] / runs:.1f} |",
+        ]
     lines += ["", "## Details (run 1 of each case)", ""]
     for r in results:
         first = r.runs[0]
@@ -342,6 +503,7 @@ def write_report(path: Path, results: List[CaseResult], m: Dict, mode: str, runs
             lines.append(f"Rejected by rule `{first.reject_rule}`: {first.message}")
         else:
             p = first.final.prefs
+            c = first.confidence
             lines.append(f"- Docs: {', '.join(d.doc_id for d, _ in first.docs) or '(none)'}")
             lines.append(f"- Profile: genre={p['favorite_genre']}, mood={p['favorite_mood']}, "
                          f"energy={p['target_energy']:.2f}, valence={p['target_valence']:.2f}, "
@@ -350,6 +512,7 @@ def write_report(path: Path, results: List[CaseResult], m: Dict, mode: str, runs
             lines.append(f"- Repairs: {'; '.join(first.repairs) or 'none'}")
             lines.append(f"- Attempts: {len(first.attempts)} (using #{first.final.number}); "
                          f"caveats: {'; '.join(first.caveats) or 'none'}")
+            lines.append(f"- Confidence: {c.score:.2f} ({c.label}); lowered by: {'; '.join(c.lowered_by) or 'nothing'}")
             top = ", ".join(f"{s['title']} ({sc:.2f}, e={s['energy']:.2f}, v={s['valence']:.2f})"
                             for s, sc, _ in first.final.results)
             lines.append(f"- Top {len(first.final.results)}: {top}")
@@ -357,7 +520,7 @@ def write_report(path: Path, results: List[CaseResult], m: Dict, mode: str, runs
         lines.append("| Property | Expected | Actual | Pass |")
         lines.append("|---|---|---|---|")
         for prop in r.properties:
-            lines.append(f"| {prop.name} | {json.dumps(prop.expected)} | {prop.actual} | {'yes' if prop.passed else '**no**'} |")
+            lines.append(f"| {prop.name} | {json.dumps(prop.expected)} | {_cell(prop.actual)} | {'yes' if prop.passed else '**no**'} |")
         lines.append("")
     Path(path).write_text("\n".join(lines), encoding="utf-8")
 

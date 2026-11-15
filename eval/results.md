@@ -1,41 +1,55 @@
 # VibeMatch Evaluation Results
 
-- Generated: 2026-11-15 13:48
+- Generated: 2026-11-15 14:46
 - Mode: **offline**
 - 15 cases x 3 runs each = 45 agent runs
 
 ## Summary
+
+15 out of 15 cases passed (100%); offline consistency 100%; average confidence 0.78; the agent struggled when confidence fell below 0.75: "rock but not too loud" (0.44: top score only 66% of max), "sad but energetic" (0.62: 2 self-check retries), "sad songs but not too slow" (0.66: 2 self-check retries), "country songs about heartbreak" (0.66: top score only 57% of max), "play me some songs" (0.71: no knowledge doc matched the request).
 
 | Metric | Value |
 |---|---|
 | Cases passed | 15/15 (100%) |
 | Properties passed | 52/52 (100%) |
 | Consistency (identical top 5 / rejection across 3 runs) | 15/15 (100%) |
-| guardrail rejections (all runs) | 12 (4.0 per pass) |
-| repairs (total) (all runs) | 18 (6.0 per pass) |
-| runs with >=1 repair (all runs) | 18 (6.0 per pass) |
-| self-check retries (all runs) | 18 (6.0 per pass) |
-| runs with caveats (all runs) | 12 (4.0 per pass) |
+| Average confidence (accepted cases, run 1) | 0.78 |
+| Average confidence, passed cases | 0.78 |
+| Average confidence, failed cases | n/a (no failed cases) |
 
-## Cases
+Confidence is computed, never self-rated by the LLM: it starts at 1.0 and loses points for a top score below the maximum, a weak knowledge-base match, plan repairs, self-check retries and LLM fallbacks (see `src/confidence.py`). Rejected requests have no confidence.
 
-| Case | Category | Request | Result | Properties | Consistent |
+## Results by case
+
+| # | Test Input | Evaluation Criteria | Result | Confidence | Notes |
 |---|---|---|---|---|---|
-| study-rain | normal | something chill for studying on a rainy night | PASS | 5/5 | yes |
-| gym-hype | normal | hype songs for the gym | PASS | 4/4 | yes |
-| sleep-calm | normal | calm music to help me fall asleep | PASS | 5/5 | yes |
-| road-trip | normal | upbeat songs for a road trip with friends | PASS | 4/4 | yes |
-| metal-lifting | normal | angry heavy metal for lifting weights | PASS | 5/5 | yes |
-| sad-not-slow | edge | sad songs but not too slow | PASS | 5/5 | yes |
-| kpop-party | edge | k-pop for a party | PASS | 5/5 | yes |
-| sad-energetic | edge | sad but energetic | PASS | 5/5 | yes |
-| country-heartbreak | edge | country songs about heartbreak | PASS | 5/5 | yes |
-| quiet-rock | edge | rock but not too loud | PASS | 3/3 | yes |
-| vague | edge | play me some songs | PASS | 2/2 | yes |
-| reject-empty | reject | "" | PASS | 1/1 | yes |
-| reject-too-long | reject | I want some songs for a long drive through the mountains ... | PASS | 1/1 | yes |
-| reject-weather | reject | what's the weather tomorrow | PASS | 1/1 | yes |
-| reject-code | reject | write me a python function that sorts a list | PASS | 1/1 | yes |
+| 1 | something chill for studying on a rainy night | avg energy <= 0.5; #1 genre in lofi/ambient/jazz; acoustic = yes; no caveat; explanation grounded | Pass | 0.99 (high) | clean run |
+| 2 | hype songs for the gym | avg energy >= 0.7; #1 genre in pop/rock/metal/hip-hop; acoustic = no; explanation grounded | Pass | 0.87 (high) | favorite_mood 'hype' -> 'energetic' |
+| 3 | calm music to help me fall asleep | avg energy <= 0.45; #1 mood in chill/relaxed/focused; profile mood = chill; repair logged for 'calm'; explanation grounded | Pass | 0.94 (high) | favorite_mood 'calm' -> 'chill' |
+| 4 | upbeat songs for a road trip with friends | avg energy >= 0.55; avg valence >= 0.55; target energy >= 0.5; explanation grounded | Pass | 0.93 (high) | favorite_mood 'upbeat' -> 'happy' |
+| 5 | angry heavy metal for lifting weights | #1 genre in metal/rock; #1 mood in angry/intense; avg energy >= 0.7; repair logged for 'heavy metal'; explanation grounded | Pass | 0.86 (high) | favorite_genre 'heavy metal' -> 'metal' |
+| 6 | sad songs but not too slow | avg valence <= 0.45; a top-3 mood in sad/melancholy/moody; target energy >= 0.5; #1 energy >= 0.45 or caveat; explanation grounded | Pass | 0.66 (medium) | 2 self-check retries, used attempt #1; caveat shown |
+| 7 | k-pop for a party | profile genre = pop; repair logged for 'k-pop'; avg energy >= 0.7; avg valence >= 0.65; explanation grounded | Pass | 0.94 (high) | favorite_genre 'k-pop' -> 'pop' |
+| 8 | sad but energetic | target valence <= 0.4; target energy >= 0.5; a top-3 mood in sad/melancholy/moody/angry/dramatic; #1 energy >= 0.45 or caveat; explanation grounded | Pass | 0.62 (medium) | 2 self-check retries, used attempt #1; caveat shown |
+| 9 | country songs about heartbreak | profile genre = country; profile mood = sad; country in top 3 or caveat; a top-3 mood in sad/melancholy/moody; explanation grounded | Pass | 0.66 (medium) | favorite_mood 'heartbreak' -> 'sad' |
+| 10 | rock but not too loud | #1 energy <= 0.65 or caveat; rock in top 3 or caveat; explanation grounded | Pass | 0.44 (low) | 2 self-check retries, used attempt #3; caveat shown |
+| 11 | play me some songs | caveat shown; explanation grounded | Pass | 0.71 (medium) | caveat shown |
+| 12 | "" | rejected as empty | Pass | n/a (rejected) | rejected by `empty` guardrail before retrieval |
+| 13 | I want some songs for a long drive through the mountains with my fa... | rejected as too_long | Pass | n/a (rejected) | rejected by `too_long` guardrail before retrieval |
+| 14 | what's the weather tomorrow | rejected as off_topic | Pass | n/a (rejected) | rejected by `off_topic` guardrail before retrieval |
+| 15 | write me a python function that sorts a list | rejected as off_topic | Pass | n/a (rejected) | rejected by `off_topic` guardrail before retrieval |
+
+## Counts
+
+Totals over all 45 runs (3 per case):
+
+| Count | Total | Per pass |
+|---|---|---|
+| Guardrail rejections | 12 | 4.0 |
+| Repairs | 18 | 6.0 |
+| Self-check retries | 18 | 6.0 |
+| Runs with caveats | 12 | 4.0 |
+| LLM fallbacks to offline | 0 (offline run: no LLM calls were made) | |
 
 ## Details (run 1 of each case)
 
@@ -48,6 +62,7 @@ Request: `something chill for studying on a rainy night`
 - Plan source: offline; explanation: template
 - Repairs: none
 - Attempts: 1 (using #1); caveats: none
+- Confidence: 0.99 (high); lowered by: -0.01 top score only 98% of max
 - Top 5: Midnight Coding (8.33, e=0.42, v=0.56), Library Rain (8.25, e=0.35, v=0.60), Focus Flow (7.32, e=0.40, v=0.59), Spacewalk Thoughts (6.58, e=0.28, v=0.65), Coffee Shop Stories (5.66, e=0.37, v=0.71)
 
 | Property | Expected | Actual | Pass |
@@ -67,6 +82,7 @@ Request: `hype songs for the gym`
 - Plan source: offline; explanation: template
 - Repairs: favorite_mood 'hype' -> 'energetic' (alias from knowledge base)
 - Attempts: 1 (using #1); caveats: none
+- Confidence: 0.87 (high); lowered by: -0.08 top score only 87% of max; -0.05 1 repair to the plan
 - Top 5: Gym Hero (7.39, e=0.93, v=0.77), Sunrise City (6.22, e=0.82, v=0.84), Fuego en la Plaza (6.17, e=0.86, v=0.88), Storm Runner (5.96, e=0.91, v=0.48), Concrete Psalms (5.80, e=0.80, v=0.62)
 
 | Property | Expected | Actual | Pass |
@@ -85,6 +101,7 @@ Request: `calm music to help me fall asleep`
 - Plan source: offline; explanation: template
 - Repairs: favorite_mood 'calm' -> 'chill' (alias from knowledge base)
 - Attempts: 1 (using #1); caveats: none
+- Confidence: 0.94 (high); lowered by: -0.05 1 repair to the plan; -0.01 top score only 98% of max
 - Top 5: Spacewalk Thoughts (8.30, e=0.28, v=0.65), Library Rain (7.18, e=0.35, v=0.60), Midnight Coding (6.93, e=0.42, v=0.56), Focus Flow (6.05, e=0.40, v=0.59), Coffee Shop Stories (4.68, e=0.37, v=0.71)
 
 | Property | Expected | Actual | Pass |
@@ -104,6 +121,7 @@ Request: `upbeat songs for a road trip with friends`
 - Plan source: offline; explanation: template
 - Repairs: favorite_mood 'upbeat' -> 'happy' (alias from knowledge base)
 - Attempts: 1 (using #1); caveats: none
+- Confidence: 0.93 (high); lowered by: -0.05 1 repair to the plan; -0.02 top score only 97% of max
 - Top 5: Rooftop Lights (8.27, e=0.76, v=0.81), Sunrise City (6.89, e=0.82, v=0.84), Gym Hero (4.49, e=0.93, v=0.77), Dust Road Letters (4.01, e=0.58, v=0.70), Island Slowdown (3.93, e=0.55, v=0.85)
 
 | Property | Expected | Actual | Pass |
@@ -122,6 +140,7 @@ Request: `angry heavy metal for lifting weights`
 - Plan source: offline; explanation: template
 - Repairs: favorite_genre 'heavy metal' -> 'metal' (alias from knowledge base)
 - Attempts: 1 (using #1); caveats: none
+- Confidence: 0.86 (high); lowered by: -0.09 top score only 86% of max; -0.05 1 repair to the plan
 - Top 5: Ironclad Fury (7.27, e=0.97, v=0.18), Storm Runner (5.99, e=0.91, v=0.48), Gym Hero (5.12, e=0.93, v=0.77), Concrete Psalms (5.05, e=0.80, v=0.62), Sunrise City (4.69, e=0.82, v=0.84)
 
 | Property | Expected | Actual | Pass |
@@ -141,6 +160,7 @@ Request: `sad songs but not too slow`
 - Plan source: offline; explanation: template
 - Repairs: none
 - Attempts: 3 (using #1); caveats: No song in the catalog fits both the style and the energy you asked for; the closest matches are shown.
+- Confidence: 0.66 (medium); lowered by: -0.20 2 self-check retries; -0.10 weak retrieval match (top doc score 2.36); -0.04 top score only 93% of max
 - Top 5: Rust in the Rain (7.94, e=0.33, v=0.22), Afterglow Static (4.15, e=0.30, v=0.28), Night Drive Loop (3.19, e=0.75, v=0.49), Tempest Overture (2.70, e=0.72, v=0.30), Coffee Shop Stories (2.49, e=0.37, v=0.71)
 
 | Property | Expected | Actual | Pass |
@@ -160,6 +180,7 @@ Request: `k-pop for a party`
 - Plan source: offline; explanation: template
 - Repairs: favorite_genre 'k-pop' -> 'pop' (alias from knowledge base)
 - Attempts: 1 (using #1); caveats: none
+- Confidence: 0.94 (high); lowered by: -0.05 1 repair to the plan; -0.01 top score only 99% of max
 - Top 5: Sunrise City (8.41, e=0.82, v=0.84), Rooftop Lights (7.46, e=0.76, v=0.81), Gym Hero (6.27, e=0.93, v=0.77), Fuego en la Plaza (5.13, e=0.86, v=0.88), Concrete Psalms (5.02, e=0.80, v=0.62)
 
 | Property | Expected | Actual | Pass |
@@ -179,6 +200,7 @@ Request: `sad but energetic`
 - Plan source: offline; explanation: template
 - Repairs: none
 - Attempts: 3 (using #1); caveats: No song in the catalog fits both the style and the energy you asked for; the closest matches are shown.
+- Confidence: 0.62 (medium); lowered by: -0.20 2 self-check retries; -0.10 weak retrieval match (top doc score 2.36); -0.08 top score only 86% of max
 - Top 5: Rust in the Rain (7.35, e=0.33, v=0.22), Afterglow Static (4.34, e=0.30, v=0.28), Night Drive Loop (3.87, e=0.75, v=0.49), Tempest Overture (2.59, e=0.72, v=0.30), Ironclad Fury (2.04, e=0.97, v=0.18)
 
 | Property | Expected | Actual | Pass |
@@ -198,6 +220,7 @@ Request: `country songs about heartbreak`
 - Plan source: offline; explanation: template
 - Repairs: favorite_mood 'heartbreak' -> 'sad' (alias from knowledge base)
 - Attempts: 1 (using #1); caveats: none
+- Confidence: 0.66 (medium); lowered by: -0.26 top score only 57% of max; -0.05 1 repair to the plan; -0.03 weak retrieval match (top doc score 3.44)
 - Top 5: Rust in the Rain (4.87, e=0.33, v=0.22), Night Drive Loop (4.58, e=0.75, v=0.49), Dust Road Letters (4.12, e=0.58, v=0.70), Afterglow Static (3.58, e=0.30, v=0.28), Hollow Porch Light (3.46, e=0.68, v=0.58)
 
 | Property | Expected | Actual | Pass |
@@ -217,6 +240,7 @@ Request: `rock but not too loud`
 - Plan source: offline; explanation: template
 - Repairs: none
 - Attempts: 3 (using #3); caveats: The catalog has no close match for the genre or mood you named together with the rest of the request.
+- Confidence: 0.44 (low); lowered by: -0.20 top score only 66% of max; -0.20 2 self-check retries; -0.16 weak retrieval match (top doc score 1.45)
 - Top 5: Island Slowdown (5.63, e=0.55, v=0.85), Dust Road Letters (5.57, e=0.58, v=0.70), Velvet Hours (5.32, e=0.52, v=0.66), Midnight Coding (4.68, e=0.42, v=0.56), Focus Flow (4.54, e=0.40, v=0.59)
 
 | Property | Expected | Actual | Pass |
@@ -234,6 +258,7 @@ Request: `play me some songs`
 - Plan source: offline; explanation: template
 - Repairs: none
 - Attempts: 1 (using #1); caveats: Your request didn't match any mood, activity or genre notes, so these are general picks - try adding a mood, activity or genre.
+- Confidence: 0.71 (medium); lowered by: -0.25 no knowledge doc matched the request; -0.04 top score only 94% of max
 - Top 5: Midnight Coding (7.97, e=0.42, v=0.56), Library Rain (7.58, e=0.35, v=0.60), Focus Flow (6.87, e=0.40, v=0.59), Spacewalk Thoughts (5.83, e=0.28, v=0.65), Coffee Shop Stories (5.21, e=0.37, v=0.71)
 
 | Property | Expected | Actual | Pass |
