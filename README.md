@@ -181,6 +181,8 @@ applied-ai-system-project/
 ├── knowledge/             # 11 markdown docs: activities, mood families, genre notes
 ├── data/songs.csv         # 20-song catalog
 ├── eval/                  # test_cases.json, run_eval.py, results.md, human_eval.md
+├── evidence/              # saved real outputs (regenerate: python -m scripts.capture_evidence)
+├── scripts/               # capture_evidence.py
 ├── tests/                 # 118 pytest tests (no network)
 ├── diagrams/              # architecture.mmd (Mermaid source)
 ├── assets/                # architecture.png
@@ -302,75 +304,36 @@ The eval runs offline by default and writes `eval/results.md`. `--llm` uses
 Gemini, at about 2 calls per case per run, so `--runs 1` helps stay within
 free-tier quota.
 
-## Sample Interactions
+## Execution Evidence
 
-All output below is real: copied from the console or from `logs/agent.log`.
-Long outputs are trimmed where marked.
+Everything in this section is real output, saved as text so the project can be
+checked without a video. The full files are in [evidence/](evidence/).
+Regenerate them with `python -m scripts.capture_evidence`. It runs offline and
+makes no API calls; `09_llm_run.txt` is a saved copy of real logged Gemini runs
+and is not regenerated.
 
-### 1. "something chill for studying on a rainy night": LLM vs. offline
+| File | Command |
+|---|---|
+| [01_chill_study.txt](evidence/01_chill_study.txt) | `python -m src.agent "something chill for studying on a rainy night" --offline --verbose` |
+| [02_gym.txt](evidence/02_gym.txt) | `python -m src.agent "hype songs for the gym" --offline` |
+| [03_kpop_repair.txt](evidence/03_kpop_repair.txt) | `python -m src.agent "k-pop for a party" --offline --verbose` |
+| [04_guardrail_empty.txt](evidence/04_guardrail_empty.txt) | `python -m src.agent "" --offline` |
+| [05_guardrail_offtopic.txt](evidence/05_guardrail_offtopic.txt) | `python -m src.agent "what's the weather tomorrow" --offline` |
+| [06_original_cli.txt](evidence/06_original_cli.txt) | `python -m src.main --table --diverse` (first profile) |
+| [07_eval.txt](evidence/07_eval.txt) | `python -m eval.run_eval` |
+| [08_pytest.txt](evidence/08_pytest.txt) | `pytest -q` |
+| [09_llm_run.txt](evidence/09_llm_run.txt) | 3 real Gemini runs, copied from `logs/agent.log` |
 
-**LLM run.** The console output wasn't saved, so this is the run's trace from
-`logs/agent.log` (run `4e4bf7`, trimmed). The main model was overloaded, so the
-fallback model wrote both the plan and the explanation.
+### 1. End-to-end runs (3 inputs)
 
-```text
-step=retrieve | doc rainy_day.md score=5.742
-step=retrieve | doc studying.md score=5.361
-step=retrieve | doc road_trip.md score=2.185
-step=plan     | Gemini gemini-3.8-flash attempt 1/3 failed after 13.12s: ServerError: 504 DEADLINE_EXCEEDED. [...]
-step=plan     | Gemini gemini-3.8-flash attempt 2/3 failed after 13.14s: ServerError: 504 DEADLINE_EXCEEDED. [...]
-step=plan     | Gemini gemini-3.8-flash attempt 3/3 failed after 0.34s: ServerError: 503 UNAVAILABLE. [...]
-step=plan     | trying fallback model gemini-3.5-flash-lite
-step=plan     | Gemini gemini-3.5-flash-lite attempt 1/1 succeeded in 0.77s
-step=plan     | llm plan: {'favorite_genre': 'lofi', 'favorite_mood': 'chill', 'target_energy': 0.32,
-                'target_valence': 0.55, 'likes_acoustic': True, 'mode': 'genre-first', 'diverse': False, [...]}
-step=act      | attempt 1 top-3: Library Rain 8.38, Midnight Coding 8.17, Focus Flow 7.50 (max 8.5)
-step=selfcheck| attempt 1 passed self-check
-step=explain  | Gemini gemini-3.5-flash-lite attempt 1/1 succeeded in 0.91s
-step=explain  | LLM explanation passed output guardrail
-```
-
-The explanation the model wrote, which passed the output guardrail:
+**Input: "something chill for studying on a rainy night"** (full output:
+[01_chill_study.txt](evidence/01_chill_study.txt))
 
 ```text
-Here are some chill lofi tracks tailored for your study session tonight, matching your need for a calm
-atmosphere [rainy_day.md].
-
-Library Rain by Paper Lanterns hits the mark with an exact genre match for lofi, a perfect chill mood, and
-high acousticness that fits your preferences. Midnight Coding by LoRoom also features a great lofi genre
-match and a relaxed chill mood with low, steady energy levels ideal for deep focus [studying.md]. Finally,
-Focus Flow by LoRoom brings a supportive focused mood family match alongside strong lofi elements to keep
-you locked into your work without distractions.
-```
-
-**Offline run:**
-
-```bash
-python -m src.agent "something chill for studying on a rainy night" --offline
-```
-
-```text
-================================================================
-VibeMatch Agent  |  plan: offline  (--offline)
-Request: "something chill for studying on a rainy night"
-================================================================
-
-[1] Retrieved knowledge docs
-    rainy_day.md       score 5.74   (context)
-    studying.md        score 5.36   (context)
-    road_trip.md       score 2.19   (context)
-    song evidence: Library Rain (3.87), Midnight Coding (3.70), Night Drive Loop (2.49), Rust in the Rain (2.10), Velvet Hours (1.85)
-
+$ python -m src.agent "something chill for studying on a rainy night" --offline --verbose
 [2] Profile (attempt 1)
     genre=lofi | mood=chill | energy=0.41 | valence=0.53 | acoustic=yes
     mode=balanced | diverse=no
-
-[3] Repairs
-    - none
-
-[4] Self-check (1 attempt(s), using #1)
-    #1 initial plan
-       top: Midnight Coding 8.33/8.5 -> pass
 
 [5] Top 5 recommendations
 ----------------------------------------------------------------
@@ -381,48 +344,22 @@ Request: "something chill for studying on a rainy night"
      + valence 0.56 vs target 0.53 (+1.48)
      + acousticness 0.71, likes acoustic (+0.35)
 2. Library Rain - Paper Lanterns               Score: 8.25 / 8.5
-     + genre match: lofi (+2.50)
-     + mood match: chill (+2.00)
-     + energy 0.35 vs target 0.41 (+1.91)
-     + valence 0.60 vs target 0.53 (+1.41)
-     + acousticness 0.86, likes acoustic (+0.43)
-[... #3 Focus Flow 7.32, #4 Spacewalk Thoughts 6.58, #5 Coffee Shop Stories 5.66 trimmed ...]
+3. Focus Flow - LoRoom                         Score: 7.32 / 8.5
+4. Spacewalk Thoughts - Orbit Bloom            Score: 6.58 / 8.5
+5. Coffee Shop Stories - Slow Stereo           Score: 5.66 / 8.5
 
 [6] Explanation (template)
     Based on [rainy_day.md, studying.md, road_trip.md], I looked for lofi / chill songs around energy 0.41 and valence 0.53 with an acoustic sound.
     #1 Midnight Coding by LoRoom: genre match: lofi, mood match: chill, energy 0.42 vs target 0.41.
-    #2 Library Rain by Paper Lanterns: genre match: lofi, mood match: chill, energy 0.35 vs target 0.41.
-    [... #3-#5 trimmed ...]
+    [... #2-#5 and the reasons for songs 2-5 trimmed ...]
 
 [7] Confidence: 0.99 (high) - top score 98% of max, no repairs, no retries
-    lowered by:
-      -0.01 top score only 98% of max
 ```
 
-| | Offline | LLM (gemini-3.5-flash-lite) |
-|---|---|---|
-| Docs used | rainy_day, studying, road_trip | same 3 docs, given in the prompt |
-| `target_energy` | 0.41 | **0.32** |
-| `mode` | balanced | **genre-first** |
-| #1 song | Midnight Coding (8.33) | **Library Rain (8.38)** |
-| Explanation | template, built from scoring reasons | natural prose citing 2 docs, passed the guardrail |
-
-Both plans come from the same retrieved docs. The offline average gets pulled
-up by `road_trip.md`, which matched only on the word "night". The LLM gave that
-doc less weight and picked a quieter target, so Library Rain moved to #1.
-
-### 2. "hype songs for the gym"
-
-```bash
-python -m src.agent "hype songs for the gym" --offline
-```
+**Input: "hype songs for the gym"** (full output: [02_gym.txt](evidence/02_gym.txt))
 
 ```text
-[1] Retrieved knowledge docs
-    workout.md         score 5.14   (context)
-    mood_driven.md     score 2.58   (mood)
-    song evidence: Gym Hero (2.66)
-
+$ python -m src.agent "hype songs for the gym" --offline
 [2] Profile (attempt 1)
     genre=pop | mood=energetic | energy=0.89 | valence=0.62 | acoustic=no
     mode=energy-focused | diverse=no
@@ -430,42 +367,22 @@ python -m src.agent "hype songs for the gym" --offline
 [3] Repairs
     - favorite_mood 'hype' -> 'energetic' (alias from knowledge base)
 
-[4] Self-check (1 attempt(s), using #1)
-    #1 initial plan
-       top: Gym Hero 7.39/8.5 -> pass
-
 [5] Top 5 recommendations
 ----------------------------------------------------------------
 1. Gym Hero - Max Pulse                        Score: 7.39 / 8.5
-     + genre match: pop (+1.50)
-     + mood family match: intense ~ energetic (+0.75)
-     + energy 0.93 vs target 0.89 (+3.92)
-     + valence 0.77 vs target 0.62 (+0.75)
-     + acousticness 0.05, prefers non-acoustic (+0.47)
 2. Sunrise City - Neon Echo                    Score: 6.22 / 8.5
 3. Fuego en la Plaza - Los Faroles             Score: 6.17 / 8.5
 4. Storm Runner - Voltline                     Score: 5.96 / 8.5
-5. Concrete Psalms - Verse Theory              Score: 5.80 / 8.5
-[trimmed: header, reasons for #2-#5, explanation]
+[... #5, per-song reasons and explanation trimmed ...]
+
+[7] Confidence: 0.87 (high) - top score 87% of max, 1 repair, no retries
 ```
 
-The top doc is `workout.md`, so the planner chose `energy-focused` mode, and
-all five songs have energy between 0.80 and 0.93. "Hype" isn't a catalog mood,
-so the validator mapped it to `energetic` using the alias list in
-`mood_driven.md`, and the repair is shown to the user.
-
-### 3. "k-pop for a party" (genre repair)
-
-```bash
-python -m src.agent "k-pop for a party" --offline
-```
+**Input: "k-pop for a party"** (full output:
+[03_kpop_repair.txt](evidence/03_kpop_repair.txt))
 
 ```text
-[1] Retrieved knowledge docs
-    party.md           score 5.17   (context)
-    genre_notes.md     score 4.21   (genre)
-    mood_bright.md     score 1.12   (mood)
-
+$ python -m src.agent "k-pop for a party" --offline --verbose
 [2] Profile (attempt 1)
     genre=pop | mood=happy | energy=0.81 | valence=0.83 | acoustic=no
     mode=energy-focused | diverse=no
@@ -476,36 +393,186 @@ python -m src.agent "k-pop for a party" --offline
 [5] Top 5 recommendations
 ----------------------------------------------------------------
 1. Sunrise City - Neon Echo                    Score: 8.41 / 8.5
-     + genre match: pop (+1.50)
-     + mood match: happy (+1.50)
-     + energy 0.82 vs target 0.81 (+4.00)
-     + valence 0.84 vs target 0.83 (+1.00)
-     + acousticness 0.18, prefers non-acoustic (+0.41)
 2. Rooftop Lights - Indigo Parade              Score: 7.46 / 8.5
 3. Gym Hero - Max Pulse                        Score: 6.27 / 8.5
-[trimmed: header, self-check, #4-#5, reasons, explanation]
+4. Fuego en la Plaza - Los Faroles             Score: 5.13 / 8.5
+5. Concrete Psalms - Verse Theory              Score: 5.02 / 8.5
+[... per-song reasons and explanation trimmed ...]
+
+[7] Confidence: 0.94 (high) - top score 99% of max, 1 repair, no retries
 ```
 
-In Module 3, a "k-pop" profile silently earned zero genre points from every
-song, and its best score was 5.87 / 8.5. Now `genre_notes.md` is retrieved, its
-alias list maps k-pop to pop, the repair is logged and shown, and the top song
-scores 8.41 / 8.5.
+**What this proves:** three different plain-English requests each produce a
+profile, a ranked top 5 with a per-feature score breakdown, an explanation and
+a confidence score. All three ran offline, with no API key.
 
-### 4. Guardrail rejections
+### 2. AI feature behavior
+
+**Retrieval, doc-based planning and self-check** for the same study request
+(from the `--verbose` log in [01_chill_study.txt](evidence/01_chill_study.txt)):
 
 ```text
-PS> python -m src.agent "" --offline
-Tell me what you'd like to hear, e.g. 'upbeat songs for a road trip'.
-(exit code 2)
-PS> python -m src.agent "what's the weather tomorrow" --offline
-I can only help with music recommendations - try describing a mood, activity, or genre.
-(exit code 2)
+[INFO] retrieve: doc rainy_day.md score=5.744
+[INFO] retrieve: doc studying.md score=5.363
+[INFO] retrieve: doc road_trip.md score=2.186
+[INFO] retrieve: song Library Rain score=3.866
+[INFO] plan: doc-weighted energy=0.41 valence=0.53 from rainy_day.md(5.74), studying.md(5.36), road_trip.md(2.19)
+[INFO] plan: mood 'chill' named in request
+[INFO] plan: mode=balanced (top doc rainy_day.md)
+[INFO] selfcheck: expected ranges from rainy_day.md: energy 0.25-0.50, valence 0.20-0.65
+[INFO] selfcheck: explicit mood 'chill' must appear in top 3
+[INFO] act: attempt 1 top-3: Midnight Coding 8.33, Library Rain 8.25, Focus Flow 7.32 (max 8.5)
+[INFO] selfcheck: attempt 1 passed self-check
 ```
 
-Both requests are stopped by deterministic checks before any retrieval or LLM
-call: one is empty, and the other contains no music words and matches no
-knowledge doc. The user gets a helpful message instead of made-up
-recommendations or a stack trace.
+**The LLM plan vs. the offline plan for the same request.** This is a real
+Gemini run (timestamps and error bodies trimmed; full log in
+[09_llm_run.txt](evidence/09_llm_run.txt), run `4e4bf7`):
+
+```text
+step=retrieve | doc rainy_day.md score=5.742
+step=retrieve | doc studying.md score=5.361
+step=retrieve | doc road_trip.md score=2.185
+step=plan | Gemini gemini-3.5-flash-lite attempt 1/1 succeeded in 0.77s
+step=plan | llm plan: {'favorite_genre': 'lofi', 'favorite_mood': 'chill', 'target_energy': 0.32, 'target_valence': 0.55, 'likes_acoustic': True, 'mode': 'genre-first', 'diverse': False, [...]
+step=act | attempt 1 top-3: Library Rain 8.38, Midnight Coding 8.17, Focus Flow 7.50 (max 8.5)
+step=selfcheck | attempt 1 passed self-check
+step=explain | LLM explanation passed output guardrail
+```
+
+The explanation Gemini wrote (it passed the output guardrail; trimmed):
+
+```text
+Here are some chill lofi tracks tailored for your study session tonight, matching your need for a calm atmosphere [rainy_day.md].
+[...] Midnight Coding by LoRoom also features a great lofi genre match and a relaxed chill mood with low, steady energy levels ideal for deep focus [studying.md]. [...]
+```
+
+| | Offline plan | LLM plan |
+|---|---|---|
+| Docs used | rainy_day, studying, road_trip | the same 3 docs, given in the prompt |
+| `target_energy` | 0.41 (score-weighted doc ranges) | **0.32** |
+| `mode` | balanced | **genre-first** |
+| #1 song | Midnight Coding (8.33) | **Library Rain (8.38)** |
+| Explanation | template, built from scoring reasons | natural prose citing 2 docs |
+
+**What this proves:** the profile comes from the retrieved documents (the
+energy target is a score-weighted mix of their ranges), and the self-check
+compares the results against the request before anything is shown. The LLM
+works from the same docs but changes the plan, which changes the #1 song. The
+offline average is pulled up by `road_trip.md`, which matched only on "night".
+
+### 3. Reliability and guardrails
+
+**Input guardrail** ([04](evidence/04_guardrail_empty.txt),
+[05](evidence/05_guardrail_offtopic.txt)):
+
+```text
+$ python -m src.agent "" --offline
+# exit code: 2
+
+Tell me what you'd like to hear, e.g. 'upbeat songs for a road trip'.
+
+$ python -m src.agent "what's the weather tomorrow" --offline
+# exit code: 2
+
+I can only help with music recommendations - try describing a mood, activity, or genre.
+```
+
+**Validator repair** (from [03_kpop_repair.txt](evidence/03_kpop_repair.txt)):
+
+```text
+[INFO] plan: genre 'k-pop' named in request
+[INFO] plan: offline plan: {'favorite_genre': 'k-pop', 'favorite_mood': 'happy', 'target_energy': 0.81, 'target_valence': 0.83, 'likes_acoustic': False, 'mode': 'energy-focused', 'diverse': False}
+[INFO] validate: repair: favorite_genre 'k-pop' -> 'pop' (alias from knowledge base)
+[INFO] act: attempt 1 top-3: Sunrise City 8.41, Rooftop Lights 7.46, Gym Hero 6.27 (max 8.5)
+```
+
+**LLM failures, then the fallback model, then offline** (from
+[09_llm_run.txt](evidence/09_llm_run.txt); timestamps and error bodies
+trimmed):
+
+```text
+run 4e4bf7  503/504 retried with backoff, then the fallback model:
+step=plan | Gemini gemini-3.8-flash attempt 1/3 failed after 13.12s: ServerError: 504 DEADLINE_EXCEEDED. [...]
+step=plan | Gemini gemini-3.8-flash attempt 2/3 failed after 13.14s: ServerError: 504 DEADLINE_EXCEEDED. [...]
+step=plan | Gemini gemini-3.8-flash attempt 3/3 failed after 0.34s: ServerError: 503 UNAVAILABLE. [...]
+step=plan | trying fallback model gemini-3.5-flash-lite
+step=plan | Gemini gemini-3.5-flash-lite attempt 1/1 succeeded in 0.77s
+
+run 4e4bf7  429 quota error is not retried:
+step=explain | Gemini gemini-3.8-flash attempt 2/3 failed after 0.08s: ClientError: 429 RESOURCE_EXHAUSTED. [...]
+step=explain | Gemini gemini-3.5-flash-lite attempt 1/1 succeeded in 0.91s
+
+run 4df554  retired fallback model returns 404, not retried, so the agent goes offline:
+step=plan | Gemini gemini-2.5-flash-lite attempt 1/1 failed after 0.09s: ClientError: 404 NOT_FOUND. [...]
+step=plan | all Gemini attempts failed; using offline fallback
+step=act | attempt 1 top-3: Midnight Coding 8.33, Library Rain 8.25, Focus Flow 7.32 (max 8.5)
+
+run 3f3be6  every attempt fails, so the offline plan is used:
+step=plan | LLM plan unavailable; falling back to offline plan
+step=explain | LLM explanation unavailable; using template
+```
+
+**Confidence score** (k-pop from [03_kpop_repair.txt](evidence/03_kpop_repair.txt);
+the eval rows from [07_eval.txt](evidence/07_eval.txt)):
+
+```text
+[7] Confidence: 0.94 (high) - top score 99% of max, 1 repair, no retries
+    lowered by:
+      -0.05 1 repair to the plan
+      -0.01 top score only 99% of max
+
+case                category request                   result conf   consistent
+study-rain          normal   something chill for s...  PASS   0.99   yes
+quiet-rock          edge     rock but not too loud     PASS   0.44   yes
+```
+
+**What this proves:** bad input is stopped before any retrieval or API call,
+and unknown labels are repaired and logged instead of failing silently. Each
+real Gemini failure (503, 504, 429, 404) was handled by retrying, switching to
+the fallback model or going offline, and every run still produced the correct
+recommendations. Confidence drops as a request gets harder to satisfy. A
+summary of every mechanism is in [Reliability mechanisms](#reliability-mechanisms).
+
+### 4. Evaluation and tests
+
+**Evaluation** (from [07_eval.txt](evidence/07_eval.txt); the full report is in
+[eval/results.md](eval/results.md)):
+
+```text
+$ python -m eval.run_eval
+case                category request                   result conf   consistent
+------------------------------------------------------------------------------
+sad-not-slow        edge     sad songs but not too...  PASS   0.66   yes
+kpop-party          edge     k-pop for a party         PASS   0.94   yes
+reject-empty        reject   ""                        PASS   n/a    yes
+[... 12 more rows trimmed ...]
+------------------------------------------------------------------------------
+Cases passed:       15/15 (100%)
+Properties passed:  52/52 (100%)
+Consistency:        15/15 cases identical across 3 runs (100%)
+Summary: 15 out of 15 cases passed (100%); offline consistency 100%; average
+confidence 0.78; the agent struggled when confidence fell below 0.75: "rock
+```
+
+**Tests** ([08_pytest.txt](evidence/08_pytest.txt)) and the **original CLI**
+([06_original_cli.txt](evidence/06_original_cli.txt)):
+
+```text
+$ pytest -q
+118 passed in 1.08s
+
+$ python -m src.main --table --diverse
+PROFILE: High-Energy Pop
+mode=balanced | diversity=on
+|      1 | Sunrise City      | Neon Echo     | 8.37 / 8.5 | genre match: pop (+2.50)                        |
+```
+
+**What this proves:** the whole pipeline passes all 15 evaluation cases,
+including the 4 guardrail rejections, and gives identical results on repeated
+runs. All 118 unit tests pass without network access, and the original Module 3
+CLI still runs unchanged. The full evaluation tables and the human review are
+in [Testing Summary](#testing-summary).
 
 ## Design Decisions
 
@@ -522,7 +589,7 @@ recommendations or a stack trace.
   from score-weighted doc ranges and label votes, so the system always works,
   even with no key, no network or no quota, and tests are fully reproducible.
   *Trade-off:* its profiles are less nuanced than the LLM's (energy 0.41 vs.
-  0.32 in Sample 1).
+  0.32 in [Execution Evidence](#2-ai-feature-behavior)).
 - **The validator repairs and clamps instead of rejecting.** An LLM's
   `target_energy: 1.4` is clamped to 1.0 and "k-pop" is mapped to "pop", so
   the user still gets an answer. *Trade-off:* a repair can guess wrong, so
@@ -686,3 +753,19 @@ For a detailed reflection on AI collaboration, limitations, and responsible use,
 The complete Module 3 README (scoring recipe, profile experiments, weight-shift
 experiment, bias analysis and stretch features) is preserved in
 [docs/ORIGINAL_PROJECT.md](docs/ORIGINAL_PROJECT.md).
+
+## About This Project (Portfolio)
+
+**Repo:** https://github.com/CarlitoTF99/applied-ai-system-final
+
+This project shows that I build AI systems I can explain and trust, not just
+ones that produce an answer. I extended a simple rule-based music recommender
+into an agent that retrieves knowledge, plans a listener profile with an LLM,
+checks its own results, and explains them, while keeping the original scoring
+engine deterministic so every recommendation can be traced to exact points.
+When the LLM failed in real ways (retired model names, server overloads and
+quota limits), I designed retries, fallback models and an offline mode so the
+system never breaks, and I measured reliability with automated tests, an
+evaluation harness and my own human review. I used AI as a fast collaborator
+but verified its choices against real output, and I care about documenting
+limitations and bias as much as features.
