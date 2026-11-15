@@ -1,6 +1,622 @@
-# 🎵 Music Recommender Simulation
+# VibeMatch Agent: an Applied AI Music Recommender
 
-## Project Summary
+Type what you want to hear in plain English, for example "something chill for
+studying on a rainy night". VibeMatch retrieves relevant music knowledge, plans
+a listener profile, checks it, runs it through a transparent scoring engine,
+checks the results against your request, and explains its picks. Every step is
+logged, and the whole pipeline still works when the LLM is unavailable.
+
+---
+
+## Base Project
+
+This project extends my Module 3 project, **"Music Recommender Simulation"**.
+That project was a content-based recommender that scored each of 20 songs in
+`data/songs.csv` against a listener profile on genre, mood, energy, valence and
+acousticness, for a maximum of 8.5 points. It returned a ranked top 5, and every
+recommendation listed exactly how many points each feature contributed. Stretch
+features added 4 switchable scoring modes, a diversity penalty for repeated
+artists and genres, 5 optional advanced song attributes and a grid-table view.
+
+Its main limitations motivated this project. Users had to hand-write a Python
+profile dict, and genres or moods that aren't in the catalog (like "k-pop" or
+"calm") matched nothing, with no warning.
+
+The original scoring engine (`score_song` / `recommend_songs` in
+`src/recommender.py`) is **reused unchanged**, and `python -m src.main` still
+produces byte-identical output. All the Module 3 documentation is preserved
+under [Original Project Details](#original-project-details).
+
+---
+
+## What's New
+
+| Feature | What it does | Why it matters |
+|---|---|---|
+| **RAG retrieval** | A pure-Python BM25 retriever over 11 knowledge docs in `knowledge/` (activities, mood families, genre notes) and over the song catalog. | The profile is built from documented energy/valence ranges and genre/mood lists, not guesses. |
+| **Agentic loop** | Steps: input guardrail, retrieve, plan, validate, act, self-check (up to 2 revisions), explain. | The agent checks its own results against the request and retries or warns instead of returning bad picks silently. |
+| **Gemini + offline fallback** | Gemini writes the JSON plan and the explanation. Without a key, or when every call fails, deterministic rules build the plan from the retrieved docs. | The system never depends on the API being up. |
+| **Guardrails** | Input checks (empty, too long, off-topic), schema validation and repair (clamping, alias mapping), and an output check on explanations. | Fixes the old silent "k-pop"/"calm" failures and stops the LLM from naming songs it didn't recommend. |
+| **Resilient LLM client** | A timeout, retries only for timeouts/5xx (2s then 5s), never for 4xx, then one try on a fallback model. | It survived real 503/504/404/429 errors during development (see below). |
+| **Logging** | Every step, retrieved doc, repair, retry and error goes to `logs/agent.log`; `--verbose` also prints them to the console. | Each decision can be traced. |
+| **Evaluation harness** | `python -m eval.run_eval` runs 15 property-based cases and reports pass rate, consistency and counters. | It found 4 real bugs that unit tests missed (see [Evaluation results](#evaluation-results)). |
+
+The full design (module layout, plan schema, guardrail rules, retry logic, data
+flow diagram) is in [docs/DESIGN.md](docs/DESIGN.md).
+
+---
+
+## Setup (step by step)
+
+**1. Clone the repository**
+
+```bash
+git clone https://github.com/CarlitoTF99/applied-ai-system-project.git
+cd applied-ai-system-project
+```
+
+**2. Create and activate a virtual environment**
+
+Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+macOS / Linux:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+If PowerShell blocks the activation script, run
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once and try again.
+
+**3. Install dependencies**
+
+```bash
+pip install -r requirements.txt
+```
+
+This installs `pytest`, `tabulate`, `python-dotenv` and `google-genai`.
+
+**4. (Optional) Add a Gemini API key**
+
+The key is **optional**. Without it, the agent runs in offline mode and still
+produces full recommendations and template explanations.
+
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+macOS / Linux:
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+Replace the placeholder value of `GEMINI_API_KEY` with your key. `.env` is
+git-ignored, so the key never gets committed. The other settings are optional:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | main model |
+| `GEMINI_FALLBACK_MODEL` | `gemini-3.8-flash` | tried once if the main model fails (`none` disables it) |
+| `GEMINI_TIMEOUT` | `30` | seconds per attempt |
+
+---
+
+## How to Run
+
+**Agent (new):**
+
+```bash
+python -m src.agent "something chill for studying on a rainy night"
+```
+
+| Flag | Effect |
+|---|---|
+| `--offline` | never call Gemini, even if a key is set |
+| `--verbose` | also print each step's log lines to the console |
+| `--k N` | number of songs (default 5, clamped to 1-20) |
+| `--table` | show the recommendations as a grid table |
+
+The exit code is 0 on success, 2 when the input guardrail rejects the request,
+and 1 on an unexpected error. The error message points to `logs/agent.log`.
+
+**Original CLI (Module 3, unchanged):**
+
+```bash
+python -m src.main
+python -m src.main --mode mood-first --diverse --table
+```
+
+`--mode` accepts `balanced`, `genre-first`, `mood-first` or `energy-focused`.
+
+**Tests:**
+
+```bash
+pytest
+```
+
+The 111 tests need no network: Gemini is replaced by fakes.
+
+**Evaluation:**
+
+```bash
+python -m eval.run_eval
+python -m eval.run_eval --llm --runs 1
+```
+
+The eval runs offline by default. `--llm` uses Gemini, but each accepted case
+needs about 2 calls per run, and free-tier quota is limited, so `--runs 1`
+saves calls. The eval writes a markdown report to `eval/results.md`.
+
+---
+
+## Sample Runs
+
+All output below is real: it was copied from the console or from
+`logs/agent.log`. Long log lines are trimmed where marked `[...]`.
+
+### 1. "something chill for studying on a rainy night": LLM vs. offline
+
+**LLM run.** The console output of this run wasn't saved, so this is its trace
+from `logs/agent.log` (run `4e4bf7`). Gemini's main model was overloaded, so
+the plan and the explanation both came from the fallback model.
+
+```text
+step=start    | Gemini model=gemini-3.8-flash fallback=gemini-3.5-flash-lite timeout=15s retries=2 backoff=2s/5s
+step=input    | passed input guardrail
+step=retrieve | doc rainy_day.md score=5.742
+step=retrieve | doc studying.md score=5.361
+step=retrieve | doc road_trip.md score=2.185
+step=plan     | Gemini gemini-3.8-flash attempt 1/3 failed after 13.12s: ServerError: 504 DEADLINE_EXCEEDED. [...]
+step=plan     | Gemini gemini-3.8-flash attempt 2/3 failed after 13.14s: ServerError: 504 DEADLINE_EXCEEDED. [...]
+step=plan     | Gemini gemini-3.8-flash attempt 3/3 failed after 0.34s: ServerError: 503 UNAVAILABLE. [...]
+step=plan     | trying fallback model gemini-3.5-flash-lite
+step=plan     | Gemini gemini-3.5-flash-lite attempt 1/1 succeeded in 0.77s
+step=plan     | llm plan: {'favorite_genre': 'lofi', 'favorite_mood': 'chill', 'target_energy': 0.32,
+                'target_valence': 0.55, 'likes_acoustic': True, 'mode': 'genre-first', 'diverse': False,
+                'rationale': 'Combining rainy night vibes and studying calls for low energy, acoustic-heavy,
+                and focused lofi or ambient tracks that maintain a cozy, calm atmosphere.'}
+step=validate | validated prefs: {'favorite_genre': 'lofi', 'favorite_mood': 'chill', 'target_energy': 0.32,
+                'target_valence': 0.55, 'likes_acoustic': True, 'mode': 'genre-first', 'diverse': False}
+step=selfcheck| expected ranges from rainy_day.md: energy 0.25-0.50, valence 0.20-0.65
+step=act      | attempt 1 top-3: Library Rain 8.38, Midnight Coding 8.17, Focus Flow 7.50 (max 8.5)
+step=selfcheck| attempt 1 passed self-check
+step=explain  | Gemini gemini-3.8-flash attempt 1/3 failed after 13.14s: ServerError: 504 DEADLINE_EXCEEDED. [...]
+step=explain  | Gemini gemini-3.8-flash attempt 2/3 failed after 0.08s: ClientError: 429 RESOURCE_EXHAUSTED. [...]
+step=explain  | trying fallback model gemini-3.5-flash-lite
+step=explain  | Gemini gemini-3.5-flash-lite attempt 1/1 succeeded in 0.91s
+step=explain  | LLM explanation passed output guardrail
+```
+
+The LLM's explanation, which passed the output guardrail:
+
+```text
+Here are some chill lofi tracks tailored for your study session tonight, matching your need for a calm
+atmosphere [rainy_day.md].
+
+Library Rain by Paper Lanterns hits the mark with an exact genre match for lofi, a perfect chill mood, and
+high acousticness that fits your preferences. Midnight Coding by LoRoom also features a great lofi genre
+match and a relaxed chill mood with low, steady energy levels ideal for deep focus [studying.md]. Finally,
+Focus Flow by LoRoom brings a supportive focused mood family match alongside strong lofi elements to keep
+you locked into your work without distractions.
+```
+
+**Offline run** (`python -m src.agent "something chill for studying on a rainy night" --offline`):
+
+```text
+================================================================
+VibeMatch Agent  |  plan: offline  (--offline)
+Request: "something chill for studying on a rainy night"
+================================================================
+
+[1] Retrieved knowledge docs
+    rainy_day.md       score 5.74   (context)
+    studying.md        score 5.36   (context)
+    road_trip.md       score 2.19   (context)
+    song evidence: Library Rain (3.87), Midnight Coding (3.70), Night Drive Loop (2.49), Rust in the Rain (2.10), Velvet Hours (1.85)
+
+[2] Profile (attempt 1)
+    genre=lofi | mood=chill | energy=0.41 | valence=0.53 | acoustic=yes
+    mode=balanced | diverse=no
+
+[3] Repairs
+    - none
+
+[4] Self-check (1 attempt(s), using #1)
+    #1 initial plan
+       top: Midnight Coding 8.33/8.5 -> pass
+
+[5] Top 5 recommendations
+----------------------------------------------------------------
+1. Midnight Coding - LoRoom                    Score: 8.33 / 8.5
+     + genre match: lofi (+2.50)
+     + mood match: chill (+2.00)
+     + energy 0.42 vs target 0.41 (+2.00)
+     + valence 0.56 vs target 0.53 (+1.48)
+     + acousticness 0.71, likes acoustic (+0.35)
+2. Library Rain - Paper Lanterns               Score: 8.25 / 8.5
+     + genre match: lofi (+2.50)
+     + mood match: chill (+2.00)
+     + energy 0.35 vs target 0.41 (+1.91)
+     + valence 0.60 vs target 0.53 (+1.41)
+     + acousticness 0.86, likes acoustic (+0.43)
+3. Focus Flow - LoRoom                         Score: 7.32 / 8.5
+     + genre match: lofi (+2.50)
+     + mood family match: focused ~ chill (+1.00)
+     + energy 0.40 vs target 0.41 (+2.00)
+     + valence 0.59 vs target 0.53 (+1.43)
+     + acousticness 0.78, likes acoustic (+0.39)
+4. Spacewalk Thoughts - Orbit Bloom            Score: 6.58 / 8.5
+     + related genre: ambient ~ lofi (+1.25)
+     + mood match: chill (+2.00)
+     + energy 0.28 vs target 0.41 (+1.62)
+     + valence 0.65 vs target 0.53 (+1.25)
+     + acousticness 0.92, likes acoustic (+0.46)
+5. Coffee Shop Stories - Slow Stereo           Score: 5.66 / 8.5
+     + related genre: jazz ~ lofi (+1.25)
+     + mood family match: relaxed ~ chill (+1.00)
+     + energy 0.37 vs target 0.41 (+1.96)
+     + valence 0.71 vs target 0.53 (+1.00)
+     + acousticness 0.89, likes acoustic (+0.45)
+
+[6] Explanation (template)
+    Based on [rainy_day.md, studying.md, road_trip.md], I looked for lofi / chill songs around energy 0.41 and valence 0.53 with an acoustic sound.
+    #1 Midnight Coding by LoRoom: genre match: lofi, mood match: chill, energy 0.42 vs target 0.41.
+    #2 Library Rain by Paper Lanterns: genre match: lofi, mood match: chill, energy 0.35 vs target 0.41.
+    #3 Focus Flow by LoRoom: genre match: lofi, energy 0.40 vs target 0.41, valence 0.59 vs target 0.53.
+    #4 Spacewalk Thoughts by Orbit Bloom: mood match: chill, energy 0.28 vs target 0.41, related genre: ambient ~ lofi.
+    #5 Coffee Shop Stories by Slow Stereo: energy 0.37 vs target 0.41, related genre: jazz ~ lofi, mood family match: relaxed ~ chill.
+
+(run 0c9e3d logged to logs/agent.log)
+```
+
+**What the LLM changed:**
+
+| | Offline plan | LLM plan (gemini-3.5-flash-lite) |
+|---|---|---|
+| Docs used | rainy_day.md, studying.md, road_trip.md | same 3 docs (included in the prompt) |
+| Genre / mood | lofi / chill | lofi / chill |
+| `target_energy` | 0.41 (score-weighted mean of the doc ranges) | **0.32**: reasoned that rain plus studying means lower energy |
+| `target_valence` | 0.53 | 0.55 |
+| `mode` | balanced | **genre-first** |
+| #1 song | Midnight Coding (8.33) | **Library Rain (8.38)**: quieter (energy 0.35) and tagged "rainy" |
+| Top 3 | Midnight Coding, Library Rain, Focus Flow | Library Rain, Midnight Coding, Focus Flow |
+| Repairs / retries | none / none | none / none (the plan was valid JSON) |
+| Explanation | template: lists all 5 songs with their scoring reasons | natural prose about the top 3, citing `[rainy_day.md]` and `[studying.md]`; it passed the output guardrail |
+
+Both plans stay in the same doc-grounded range. The offline mean is pulled up
+by road_trip.md (matched only by "night"), and the LLM discounted that doc.
+
+### 2. "hype songs for the gym" --offline
+
+```text
+================================================================
+VibeMatch Agent  |  plan: offline  (--offline)
+Request: "hype songs for the gym"
+================================================================
+
+[1] Retrieved knowledge docs
+    workout.md         score 5.14   (context)
+    mood_driven.md     score 2.58   (mood)
+    song evidence: Gym Hero (2.66)
+
+[2] Profile (attempt 1)
+    genre=pop | mood=energetic | energy=0.89 | valence=0.62 | acoustic=no
+    mode=energy-focused | diverse=no
+
+[3] Repairs
+    - favorite_mood 'hype' -> 'energetic' (alias from knowledge base)
+
+[4] Self-check (1 attempt(s), using #1)
+    #1 initial plan
+       top: Gym Hero 7.39/8.5 -> pass
+
+[5] Top 5 recommendations
+----------------------------------------------------------------
+1. Gym Hero - Max Pulse                        Score: 7.39 / 8.5
+     + genre match: pop (+1.50)
+     + mood family match: intense ~ energetic (+0.75)
+     + energy 0.93 vs target 0.89 (+3.92)
+     + valence 0.77 vs target 0.62 (+0.75)
+     + acousticness 0.05, prefers non-acoustic (+0.47)
+2. Sunrise City - Neon Echo                    Score: 6.22 / 8.5
+     + genre match: pop (+1.50)
+     + no mood match: happy (+0.00)
+     + energy 0.82 vs target 0.89 (+3.76)
+     + valence 0.84 vs target 0.62 (+0.55)
+     + acousticness 0.18, prefers non-acoustic (+0.41)
+3. Fuego en la Plaza - Los Faroles             Score: 6.17 / 8.5
+     + no genre match: latin (+0.00)
+     + mood match: energetic (+1.50)
+     + energy 0.86 vs target 0.89 (+3.96)
+     + valence 0.88 vs target 0.62 (+0.43)
+     + acousticness 0.45, prefers non-acoustic (+0.28)
+4. Storm Runner - Voltline                     Score: 5.96 / 8.5
+     + no genre match: rock (+0.00)
+     + mood family match: intense ~ energetic (+0.75)
+     + energy 0.91 vs target 0.89 (+3.98)
+     + valence 0.48 vs target 0.62 (+0.78)
+     + acousticness 0.10, prefers non-acoustic (+0.45)
+5. Concrete Psalms - Verse Theory              Score: 5.80 / 8.5
+     + no genre match: hip-hop (+0.00)
+     + mood family match: confident ~ energetic (+0.75)
+     + energy 0.80 vs target 0.89 (+3.61)
+     + valence 0.62 vs target 0.62 (+1.00)
+     + acousticness 0.12, prefers non-acoustic (+0.44)
+
+[6] Explanation (template)
+    Based on [workout.md, mood_driven.md], I looked for pop / energetic songs around energy 0.89 and valence 0.62 with an electric sound.
+    #1 Gym Hero by Max Pulse: energy 0.93 vs target 0.89, genre match: pop, mood family match: intense ~ energetic.
+    #2 Sunrise City by Neon Echo: energy 0.82 vs target 0.89, genre match: pop, valence 0.84 vs target 0.62.
+    #3 Fuego en la Plaza by Los Faroles: energy 0.86 vs target 0.89, mood match: energetic, valence 0.88 vs target 0.62.
+    #4 Storm Runner by Voltline: energy 0.91 vs target 0.89, valence 0.48 vs target 0.62, mood family match: intense ~ energetic.
+    #5 Concrete Psalms by Verse Theory: energy 0.80 vs target 0.89, valence 0.62 vs target 0.62, mood family match: confident ~ energetic.
+
+(run 398eaf logged to logs/agent.log)
+```
+
+The top doc is `workout.md`, so the planner picked `energy-focused` mode. The
+word "hype" isn't a catalog mood, so the validator mapped it to `energetic`
+using the alias list in `mood_driven.md`.
+
+### 3. "k-pop for a party" --offline (shows a repair)
+
+```text
+================================================================
+VibeMatch Agent  |  plan: offline  (--offline)
+Request: "k-pop for a party"
+================================================================
+
+[1] Retrieved knowledge docs
+    party.md           score 5.17   (context)
+    genre_notes.md     score 4.21   (genre)
+    mood_bright.md     score 1.12   (mood)
+    song evidence: Sunrise City (1.81), Gym Hero (1.81), Rooftop Lights (1.77)
+
+[2] Profile (attempt 1)
+    genre=pop | mood=happy | energy=0.81 | valence=0.83 | acoustic=no
+    mode=energy-focused | diverse=no
+
+[3] Repairs
+    - favorite_genre 'k-pop' -> 'pop' (alias from knowledge base)
+
+[4] Self-check (1 attempt(s), using #1)
+    #1 initial plan
+       top: Sunrise City 8.41/8.5 -> pass
+
+[5] Top 5 recommendations
+----------------------------------------------------------------
+1. Sunrise City - Neon Echo                    Score: 8.41 / 8.5
+     + genre match: pop (+1.50)
+     + mood match: happy (+1.50)
+     + energy 0.82 vs target 0.81 (+4.00)
+     + valence 0.84 vs target 0.83 (+1.00)
+     + acousticness 0.18, prefers non-acoustic (+0.41)
+2. Rooftop Lights - Indigo Parade              Score: 7.46 / 8.5
+     + related genre: indie pop ~ pop (+0.75)
+     + mood match: happy (+1.50)
+     + energy 0.76 vs target 0.81 (+3.88)
+     + valence 0.81 vs target 0.83 (+1.00)
+     + acousticness 0.35, prefers non-acoustic (+0.33)
+3. Gym Hero - Max Pulse                        Score: 6.27 / 8.5
+     + genre match: pop (+1.50)
+     + no mood match: intense (+0.00)
+     + energy 0.93 vs target 0.81 (+3.34)
+     + valence 0.77 vs target 0.83 (+0.96)
+     + acousticness 0.05, prefers non-acoustic (+0.47)
+4. Fuego en la Plaza - Los Faroles             Score: 5.13 / 8.5
+     + no genre match: latin (+0.00)
+     + no mood match: energetic (+0.00)
+     + energy 0.86 vs target 0.81 (+3.88)
+     + valence 0.88 vs target 0.83 (+0.97)
+     + acousticness 0.45, prefers non-acoustic (+0.28)
+5. Concrete Psalms - Verse Theory              Score: 5.02 / 8.5
+     + no genre match: hip-hop (+0.00)
+     + no mood match: confident (+0.00)
+     + energy 0.80 vs target 0.81 (+4.00)
+     + valence 0.62 vs target 0.83 (+0.58)
+     + acousticness 0.12, prefers non-acoustic (+0.44)
+
+[6] Explanation (template)
+    Based on [party.md, genre_notes.md, mood_bright.md], I looked for pop / happy songs around energy 0.81 and valence 0.83 with an electric sound.
+    #1 Sunrise City by Neon Echo: energy 0.82 vs target 0.81, genre match: pop, mood match: happy.
+    #2 Rooftop Lights by Indigo Parade: energy 0.76 vs target 0.81, mood match: happy, valence 0.81 vs target 0.83.
+    #3 Gym Hero by Max Pulse: energy 0.93 vs target 0.81, genre match: pop, valence 0.77 vs target 0.83.
+    #4 Fuego en la Plaza by Los Faroles: energy 0.86 vs target 0.81, valence 0.88 vs target 0.83, acousticness 0.45, prefers non-acoustic.
+    #5 Concrete Psalms by Verse Theory: energy 0.80 vs target 0.81, valence 0.62 vs target 0.83, acousticness 0.12, prefers non-acoustic.
+
+(run 7b16f1 logged to logs/agent.log)
+```
+
+In Module 3, the "Ghost Genre" profile (`favorite_genre: "k-pop"`) silently
+earned 0 genre points from every song, and its best score was 5.87 / 8.5. Now
+`genre_notes.md` is retrieved, its alias list maps k-pop to pop, the repair is
+logged and shown, and the #1 song scores 8.41 / 8.5.
+
+---
+
+## Reliability & Guardrails
+
+### Input guardrail
+
+**Input:** an empty request, and an off-topic one.
+**Behavior:** deterministic checks (no LLM) for empty input, more than 300
+characters, and requests with no music vocabulary and no knowledge-base match.
+**Result:** a helpful message and exit code 2, with no recommendations and no
+stack trace.
+
+```text
+PS> python -m src.agent "" --offline
+Tell me what you'd like to hear, e.g. 'upbeat songs for a road trip'.
+(exit code 2)
+PS> python -m src.agent "what's the weather tomorrow" --offline
+I can only help with music recommendations - try describing a mood, activity, or genre.
+(exit code 2)
+```
+
+### Plan validator (repair and clamp)
+
+**Input:** the k-pop request above. Its offline plan contains the raw word
+`k-pop`, which isn't a catalog genre.
+**Behavior:** `validate_prefs` maps unknown labels using the knowledge base's
+alias lists, and falls back to retrieval if there's no alias.
+**Result:** `favorite_genre 'k-pop' -> 'pop' (alias from knowledge base)`, shown
+under `[3] Repairs` in Sample Run 3.
+
+To show every repair rule at once, here is a direct call to `validate_prefs`
+with a deliberately broken plan of the kind an LLM might return (real output):
+
+```text
+raw plan : {'favorite_genre': 'k-pop', 'favorite_mood': 'hype', 'target_energy': 1.4, 'target_valence': '0.7', 'likes_acoustic': 'no', 'mode': 'turbo'}
+repairs  :
+  - target_energy 1.4 clamped to 1
+  - target_valence '0.7' cast to number 0.7
+  - likes_acoustic 'no' coerced to False
+  - mode 'turbo' unknown; set to balanced
+  - favorite_genre 'k-pop' -> 'pop' (alias from knowledge base)
+  - favorite_mood 'hype' -> 'energetic' (alias from knowledge base)
+clean    : {'favorite_genre': 'pop', 'favorite_mood': 'energetic', 'target_energy': 1.0, 'target_valence': 0.7, 'likes_acoustic': False, 'mode': 'balanced', 'diverse': False}
+```
+
+The clamping matters: `score_song` raises `ValueError` for energy outside 0-1,
+so without it an LLM's 1.4 would crash the run.
+
+### Self-check and retry
+
+**Input:** `"sad songs but not too slow"` (offline).
+**Behavior:** "not too slow" sets an explicit energy floor of 0.5. The #1 song
+breaks it, so the agent revises the profile twice. It keeps the attempt with
+the fewest and smallest violations and tells the user what it couldn't satisfy.
+**Result** (real output, excerpt):
+
+```text
+[4] Self-check (3 attempt(s), using #1)
+    #1 initial plan
+       top: Rust in the Rain 7.94/8.5 -> energy_constraint: #1 Rust in the Rain energy 0.33 below requested floor 0.50
+    #2 nudged toward expected energy/valence: target_energy 0.50->0.60 (requested limit), mode mood-first->energy-focused
+       top: Rust in the Rain 6.00/8.5 -> valence: top-3 mean valence 0.41 outside mood_low.md range 0.00-0.25 (+/-0.15); energy_constraint: #1 Rust in the Rain energy 0.33 below requested floor 0.50
+    #3 swapped to next-best vote: favorite_genre blues->folk
+       top: Hollow Porch Light 5.88/8.5 -> valence: top-3 mean valence 0.53 outside mood_low.md range 0.00-0.25 (+/-0.15); explicit_miss: requested mood 'sad' not in top-3
+...
+    Note: No song in the catalog fits both the style and the energy you asked for; the closest matches are shown.
+```
+
+The catalog has only one sad song, so no revision can satisfy both "sad" and
+"not too slow". Attempt 3 even lost the requested mood. The agent keeps
+attempt 1 and shows a caveat instead of silently returning a slow song.
+
+### Output guardrail on explanations
+
+**Input:** any explanation the LLM writes.
+**Behavior:** `check_explanation` rejects text that names a catalog song not in
+the results, names none of the results, cites no knowledge doc, cites a doc that
+wasn't retrieved, or is longer than 1,000 characters. On rejection, the agent
+uses the template explanation built from the scoring reasons.
+**Result:** the live LLM explanation in Sample Run 1 passed
+(`LLM explanation passed output guardrail`). No live run produced a bad
+explanation, so here are direct calls with the gym results (real output):
+
+```text
+'Gym Hero keeps the pace up for lifting [workout.md].' -> (True, 'ok')
+'Try Gym Hero, or slow down with Library Rain [workout.md].' -> (False, "mentions 'Library Rain', which is not in the results")
+'Gym Hero is a great gym song.' -> (False, 'cites no knowledge doc')
+'Gym Hero fits a party too [party.md].' -> (False, 'cites docs that were not retrieved: party.md')
+```
+
+### LLM failure handling (real incidents from development)
+
+The client retries **only** timeouts and 5xx errors (waiting 2s, then 5s),
+never 4xx errors. It then tries the fallback model once, and if that fails too
+it uses the offline path. All four incidents below are real and come from
+`logs/agent.log`, with error bodies trimmed.
+
+| Incident | Input -> Behavior -> Result |
+|---|---|
+| **404: retired model name** (run `4df554`) | Fallback model `gemini-2.5-flash-lite` -> 404 "no longer available to new users", **not retried** -> offline plan, same results as the offline run. |
+| **504 / 503 server errors** (run `4e4bf7`, plan) | Main model overloaded -> 504, wait 2s, 504, wait 5s, 503 -> fallback model `gemini-3.5-flash-lite` **succeeded in 0.77s**. |
+| **429 quota** (run `4e4bf7`, explain) | Main model -> 504, then **429 RESOURCE_EXHAUSTED, not retried** -> fallback model **succeeded in 0.91s**, and its explanation passed the output guardrail. |
+| **All attempts fail** (run `3f3be6`) | 6 attempts across plan and explain, all 503/504 -> **offline plan and template explanation**. The top 3 were Midnight Coding 8.33, Library Rain 8.25, Focus Flow 7.32, identical to the offline run. |
+
+```text
+run=4df554 step=plan    | Gemini gemini-3.8-flash attempt 3/3 failed after 14.52s: ServerError: 504 DEADLINE_EXCEEDED. [...]
+run=4df554 step=plan    | Gemini gemini-2.5-flash-lite attempt 1/1 failed after 0.09s: ClientError: 404 NOT_FOUND. [...]
+                          This model models/gemini-2.5-flash-lite is no longer available to new users. [...]; not retryable (model not found)
+run=4df554 step=plan    | all Gemini attempts failed; using offline fallback
+run=4df554 step=plan    | offline plan: {'favorite_genre': 'lofi', 'favorite_mood': 'chill', 'target_energy': 0.41, 'target_valence': 0.53, 'likes_acoustic': True, 'mode': 'balanced', 'diverse': False}
+run=4df554 step=act     | attempt 1 top-3: Midnight Coding 8.33, Library Rain 8.25, Focus Flow 7.32 (max 8.5)
+
+run=4e4bf7 step=explain | Gemini gemini-3.8-flash attempt 1/3 failed after 13.14s: ServerError: 504 DEADLINE_EXCEEDED. [...]
+run=4e4bf7 step=explain | Gemini gemini-3.8-flash attempt 2/3 failed after 0.08s: ClientError: 429 RESOURCE_EXHAUSTED. [...]
+run=4e4bf7 step=explain | trying fallback model gemini-3.5-flash-lite
+run=4e4bf7 step=explain | Gemini gemini-3.5-flash-lite attempt 1/1 succeeded in 0.91s
+
+run=3f3be6 step=plan    | Gemini gemini-3.8-flash attempt 1/3 failed after 2.91s: ServerError: 503 UNAVAILABLE. [...]; retrying in 2s
+run=3f3be6 step=plan    | Gemini gemini-3.8-flash attempt 2/3 failed after 4.55s: ServerError: 503 UNAVAILABLE. [...]; retrying in 5s
+run=3f3be6 step=plan    | Gemini gemini-3.8-flash attempt 3/3 failed after 28.48s: ServerError: 504 DEADLINE_EXCEEDED. [...]; no retries left
+run=3f3be6 step=plan    | all Gemini attempts failed; using offline fallback
+```
+
+In all four incidents the user still got correct recommendations.
+
+### Evaluation results
+
+`python -m eval.run_eval` (offline, 15 cases x 3 runs = 45 agent runs), from
+[eval/results.md](eval/results.md):
+
+| Metric | Value |
+|---|---|
+| Cases passed | 15/15 (100%) |
+| Properties passed | 52/52 (100%) |
+| Consistency (identical top 5 or rejection across 3 runs) | 15/15 (100%) |
+| Guardrail rejections | 12 (4 reject cases x 3 runs) |
+| Repairs | 18 (6 per pass) |
+| Self-check retries | 18 (6 per pass, all in the conflict cases) |
+| Runs with caveats | 12 (4 per pass) |
+
+The cases cover 5 normal requests, 6 edge cases (unknown genre, "sad but
+energetic", "rock but not too loud", "country songs about heartbreak", a vague
+request, "not too slow") and 4 rejections (empty, too long, two off-topic).
+Every case checks **properties, not exact songs**, such as "average energy
+>= 0.7" or "the named genre is in the top 3, or the user is warned". Every
+accepted case is also checked to confirm the explanation names only recommended
+songs. All 5 normal cases passed on the first attempt, with no false
+self-check alarms.
+
+**How to read these numbers:**
+- The **100% pass rate comes after fixes.** Building the eval exposed 4 real
+  bugs, which are now fixed:
+  - vague requests got an "ambient / angry" profile;
+  - explicit energy limits like "not too slow" weren't enforced;
+  - the best-attempt tie-break let a label swap ("hopeful" for a heartbreak
+    request) win;
+  - a named genre could drop out of the top 3 with no warning.
+- **Offline consistency is 100% by design,** because the offline planner is
+  deterministic. Consistency only means something with `--llm`.
+- **Known limitations remain:**
+  - negated genres aren't understood ("I hate pop" still returns pop);
+  - soft words like "slow" only shift the energy target, they don't enforce it;
+  - the catalog has only 20 songs, so many conflicting requests can only end
+    in a caveat.
+- **Tests:** 111 automated tests (`pytest`), all offline.
+
+---
+
+## Original Project Details
+
+*This section is the Module 3 README, preserved as written, with headings
+demoted one level. Its "Unknown genres and moods fail silently" limitation is
+the one the agent's validator now fixes.*
+### Project Summary
 
 VibeMatch is a content-based music recommender that scores each of 20 songs
 against a listener profile on genre, mood, energy, valence and acousticness,
@@ -12,9 +628,9 @@ summary table view.
 
 ---
 
-## How The System Works
+### How The System Works
 
-### How real recommenders work
+#### How real recommenders work
 
 Platforms like Spotify and YouTube predict what you'll like next by combining
 two approaches. **Collaborative filtering** learns from the behavior of many
@@ -35,7 +651,7 @@ Every recommender has three separate parts:
 3. **Ranking / selection** – how the system scores each song against the user
    and decides which ones to show, in what order.
 
-### What my version does
+#### What my version does
 
 My simulation is a **content-based** recommender. It has no other users to
 learn from, so it compares each song's features directly against one user's
@@ -45,7 +661,7 @@ points). That way the numbers rank songs within a genre or mood, but a song
 with no matching labels can't beat one that matches both. Energy and valence together capture a song's
 "vibe": energy is how intense it feels, valence is how positive it feels.
 
-### Features used
+#### Features used
 
 **`Song`**
 - `genre` – category (pop, lofi, rock, …)
@@ -67,14 +683,14 @@ with no matching labels can't beat one that matches both. Energy and valence tog
 - `target_valence` – preferred positivity (0–1)
 - `likes_acoustic` – True/False. If True, more acoustic songs earn more points; if False, more electronic (less acoustic) songs earn more points.
 
-### Dataset
+#### Dataset
 
 The catalog (`data/songs.csv`) started with 10 songs and was expanded to
 **20 songs** to add missing genres (e.g., hip-hop, metal, folk, classical) and
 moods (e.g., sad, angry, nostalgic), including low-valence songs the starter
 data didn't have.
 
-### Example user profile
+#### Example user profile
 
 ```python
 user_prefs = {
@@ -88,7 +704,7 @@ user_prefs = {
 
 A calm, slightly positive, acoustic-leaning study listener.
 
-### Algorithm Recipe
+#### Algorithm Recipe
 
 **Scoring Rule** (one song vs. one user, max 8.5 points):
 
@@ -127,7 +743,7 @@ system responds to how a song actually sounds, not just its tags.
 3. Break ties by smallest energy distance, then by song id.
 4. Return the top *k* songs (default 5), each with the reasons behind its score.
 
-### Data flow
+#### Data flow
 
 ```mermaid
 flowchart TD
@@ -162,7 +778,7 @@ Example: for the profile above, *Library Rain* (lofi, chill, energy 0.35)
 scores about **8.37 / 8.5**, while *Storm Runner* (rock, intense, energy 0.91)
 scores about **1.38 / 8.5**.
 
-### Expected biases
+#### Expected biases
 
 - **Genre imbalance:** lofi has the most songs *and* two related genres (jazz,
   ambient), so lofi listeners get many more good matches than others.
@@ -180,9 +796,9 @@ scores about **1.38 / 8.5**.
 
 ---
 
-## Getting Started
+### Getting Started
 
-### Setup
+#### Setup
 
 1. Create a virtual environment (optional but recommended):
 
@@ -204,7 +820,7 @@ pip install -r requirements.txt
 python -m src.main
 ```
 
-### Running Tests
+#### Running Tests
 
 Run the starter tests with:
 
@@ -216,7 +832,7 @@ You can add more tests in `tests/test_recommender.py`.
 
 ---
 
-## Sample Recommendation Output
+### Sample Recommendation Output
 
 ```text
 Loaded songs: 20
@@ -271,15 +887,15 @@ Top 5 recommendations
   doesn't.
 ---
 
-## Experiments You Tried
+### Experiments You Tried
 
-### Profile results
+#### Profile results
 
 I ran the recommender (`python -m src.main`) for 3 standard, 4 edge-case
 (designed to trick the scoring logic), and 1 advanced profile (the advanced one
 is shown under Stretch Features). Full top-5 output for the first 7:
 
-#### 1. High-Energy Pop
+##### 1. High-Energy Pop
 ```
 ######################################################
 PROFILE: High-Energy Pop
@@ -325,7 +941,7 @@ Top 5 recommendations
      + acousticness 0.45, prefers non-acoustic (+0.28)
 ```
 
-#### 2. Chill Lofi
+##### 2. Chill Lofi
 ```
 ######################################################
 PROFILE: Chill Lofi
@@ -371,7 +987,7 @@ Top 5 recommendations
      + acousticness 0.89, likes acoustic (+0.45)
 ```
 
-#### 3. Deep Intense Rock
+##### 3. Deep Intense Rock
 ```
 ######################################################
 PROFILE: Deep Intense Rock
@@ -417,7 +1033,7 @@ Top 5 recommendations
      + acousticness 0.45, prefers non-acoustic (+0.28)
 ```
 
-#### 4. Sad Banger (edge case)
+##### 4. Sad Banger (edge case)
 ```
 ######################################################
 PROFILE: Sad Banger (edge case)
@@ -463,7 +1079,7 @@ Top 5 recommendations
      + acousticness 0.08, prefers non-acoustic (+0.46)
 ```
 
-#### 5. Acoustic Chill Rock (edge case)
+##### 5. Acoustic Chill Rock (edge case)
 ```
 ######################################################
 PROFILE: Acoustic Chill Rock (edge case)
@@ -509,7 +1125,7 @@ Top 5 recommendations
      + acousticness 0.78, likes acoustic (+0.39)
 ```
 
-#### 6. Ghost Genre (edge case)
+##### 6. Ghost Genre (edge case)
 ```
 ######################################################
 PROFILE: Ghost Genre (edge case)
@@ -555,7 +1171,7 @@ Top 5 recommendations
      + acousticness 0.05, prefers non-acoustic (+0.47)
 ```
 
-#### 7. Silent Classical (edge case)
+##### 7. Silent Classical (edge case)
 ```
 ######################################################
 PROFILE: Silent Classical (edge case)
@@ -601,7 +1217,7 @@ Top 5 recommendations
      + acousticness 0.89, likes acoustic (+0.45)
 ```
 
-### Experiment: Weight Shift (energy x2, genre x0.5)
+#### Experiment: Weight Shift (energy x2, genre x0.5)
 
 **Change:** energy weight 2.0 → 4.0, genre weight 2.5 → 1.25 (related genre
 1.25 → 0.625). Max score went from 8.5 to 9.25. Everything else unchanged.
@@ -725,7 +1341,7 @@ between the original weights and these.
 
 ---
 
-## Limitations and Risks
+### Limitations and Risks
 
 - **Tiny catalog:** only 20 songs, and most genres have just 1 song.
 - **Labels and sound are weighted almost equally** (4.5 vs. 4.0 points), so one
@@ -738,7 +1354,7 @@ See the [Model Card](model_card.md) for full details.
 
 ---
 
-## Stretch Features
+### Stretch Features
 
 Every stretch feature is opt-in. Running `python -m src.main` with no flags
 gives the same scores and rankings as before for the 7 original profiles; the
@@ -746,7 +1362,7 @@ only additions are a `mode=balanced` line in each header and the new
 "Nostalgic Explorer (advanced)" profile at the end. Flags can be combined, for
 example `python -m src.main --table --mode mood-first --diverse`.
 
-### 1. Advanced song features
+#### 1. Advanced song features
 
 `data/songs.csv` has 5 new columns for every song: `popularity` (0-100),
 `release_decade` (e.g. 1970), `mood_tags` (semicolon-separated, e.g.
@@ -839,7 +1455,7 @@ Top 5 recommendations
      + language match: english (+0.50)
 ```
 
-### 2. Scoring modes (Strategy pattern)
+#### 2. Scoring modes (Strategy pattern)
 
 `--mode` picks a ranking strategy: `balanced` (default, the original
 weights), `genre-first`, `mood-first` or `energy-focused`. Each mode is just a
@@ -956,7 +1572,7 @@ and the angry, loud Ironclad Fury falls from #2 to #4 (3.85 to 3.38). Rust in
 the Rain stays #1 and gains a bigger lead (6.13 to 6.63), so this mode
 doubles down on "sad" over "loud".
 
-### 3. Diversity penalty
+#### 3. Diversity penalty
 
 `--diverse` re-ranks the list greedily in `recommend_songs`: it picks songs one
 at a time, and each remaining song loses 1.50 points if its artist is already
@@ -1066,7 +1682,7 @@ points and drops from #3 to #5. It still makes the list, because the next-best
 song in the catalog (Velvet Hours) only scores 3.26. The penalty pushes
 repeats down, but it doesn't remove them when the catalog has nothing better.
 
-### 4. Summary table
+#### 4. Summary table
 
 `--table` prints each top-5 list as a plain-ASCII grid (using `tabulate`) with
 one row per song and every reason line inside the Reasons cell. Without
@@ -1119,7 +1735,7 @@ Top 5 recommendations
 
 ---
 
-## Reflection
+### Reflection
 
 
 This project showed me that a recommender turns data into predictions with
@@ -1136,5 +1752,3 @@ and a user's favorite genre can disappear entirely if their other preferences
 point elsewhere. Real platforms work with millions of songs and users, but the
 same question applies: whose preferences does the system weight most, and who
 gets left out? Full details are in the [Model Card](model_card.md).
-
-
