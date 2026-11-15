@@ -313,42 +313,7 @@ decide" to "energy decides".
 
 ---
 
-## 9. Personal Reflection
-
-**Biggest learning moment:** Running the edge-case profiles. I expected the
-system to break on weird inputs, but it didn't crash. It just quietly gave bad
-answers. A "rock fan" who also wanted chill, acoustic music got zero rock songs,
-and a "sad banger" listener got a quiet blues song as their #1. That's when I
-understood that a recommender is just weights, and the weights decide whose
-preferences win. Label points and sound points were almost equal in my design,
-so whichever group agreed with itself took over.
-
-**How AI helped, and when I had to double-check it:** AI helped me analyze the
-dataset (it found that tempo tracked energy closely and acousticness ran
-opposite to it), test weight options before writing code, and suggest edge-case
-profiles I wouldn't have thought of. But I had to check its work. It caught
-my own typo (`target_valence: 40` instead of `0.40`), and I caught it giving
-two different acousticness rules in my README. My first "rock" profile also
-contradicted itself, and I only noticed because the AI's predicted scores
-looked wrong. I verified the scoring by doing two songs by hand (Library Rain
-8.37, Storm Runner 1.38) and confirming the code matched exactly.
-
-**What surprised me:** How much a few simple rules feel like a real
-recommendation. Five "if this matches, add points" checks and a sort produced
-lists that mostly felt right, like all-calm songs for a study playlist. It also
-surprised me how one song, Fuego en la Plaza, kept showing up for very
-different listeners, just because it's high-energy and happy and the catalog
-is small.
-
-**What I'd try next:** Make the diversity penalty stronger or add a hard
-one-per-artist cap (right now it only changes one song across all 8 profiles),
-let users list several genres and dislikes, and test
-with a much bigger, more balanced catalog to see whether the biases I found
-shrink or just change shape.
-
----
-
-## 10. Evaluation: VibeMatch Agent (final project)
+## Evaluation: VibeMatch Agent (final project)
 
 Sections 1-9 describe the Module 3 scoring engine. The final project wraps that
 engine, unchanged, in an AI agent: retrieval, Gemini or offline planning,
@@ -396,3 +361,137 @@ high-confidence result can still fail a human, as the k-pop request did. For a
 small catalog, that's an argument for keeping a person in the loop. It's also
 an argument for adding genre-specific songs instead of mapping one genre onto
 another.
+
+---
+
+## Responsible AI Reflection (Final Project: VibeMatch Agent)
+
+### Limitations and Biases
+
+- **Tiny, unbalanced catalog.** The system only knows 20 fictional songs, and
+  lofi is over-represented (3 songs plus two related genres). Lofi and "chill"
+  requests get strong matches, while fans of classical, reggae, or latin get
+  one song or none.
+- **My taste is baked into the knowledge base.** The 11 retrieval docs
+  (studying, workout, rainy day, party, etc.) were written by me and an AI.
+  They encode assumptions like "party = high energy, high valence" that don't
+  fit every culture or person.
+- **Genre flattening.** The validator maps unknown genres to the closest known
+  one (e.g. "k-pop" → pop). That keeps the system from failing, but it treats
+  different musical cultures as interchangeable.
+- **Keyword retrieval is shallow.** BM25 matches words, not meaning. For
+  "studying on a rainy night" it also retrieved `road_trip.md`, probably
+  because of the word "night." Its low score kept the effect small, but
+  synonyms and indirect requests can be missed.
+- **English-only, single-mood requests.** Mixed requests like "sad but not too
+  slow" are hard because mood and energy pull in opposite directions.
+- **The confidence score is a heuristic.** It combines top score, retrieval
+  strength, repairs, retries, and fallbacks, but it isn't calibrated against
+  real user satisfaction.
+
+### Misuse and How I Prevent It
+
+A music recommender is low-risk, but there are still real ways it could be
+misused or cause harm:
+
+| Risk | How it could happen | What the system does |
+|---|---|---|
+| Prompt injection | A request like "ignore your instructions and…" sent to Gemini | Input guardrail rejects off-topic/too-long requests; the LLM can only return a JSON profile that is schema-checked and clamped; the LLM never touches the scoring, so it can't rank songs directly |
+| Made-up recommendations | The LLM names songs that don't exist or weren't recommended | Output guardrail rejects any explanation naming songs outside the results and falls back to a template built from the real scoring reasons |
+| API key leaks | Committing the key to a public repo | Key lives only in `.env` (gitignored); `.env.example` has a placeholder. This nearly happened to me: I accidentally pasted my real key into `.env.example` and caught it before committing |
+| Cost / quota abuse | Endless retries burning the free API quota | Retries only for timeouts and 5xx errors, max 2 with backoff; 4xx errors (bad key, retired model, 429 quota) are never retried; offline mode as the final fallback |
+| Privacy | Requests like "sad songs" reveal someone's mood | Requests are logged locally only (`logs/` is gitignored) and the API key is never logged. A real deployment would need consent and data retention limits |
+| Unfair promotion | In a real product, weights could be tuned to push certain artists | Every point in a score is shown as a reason, so the ranking is auditable |
+
+The system is **not** meant for real users, real catalogs, or anything
+involving mental health, even though it accepts mood-based requests.
+
+### What Surprised Me While Testing Reliability
+
+- **The fallback mattered more than the AI.** During development Gemini failed
+  in four different ways: a retired model name (404), server overload (503),
+  timeouts (504), and a used-up quota (429). Because of the retry and fallback
+  chain, the system still returned correct recommendations every time instead
+  of crashing.
+- **The LLM really did change the results.** For "something chill for studying
+  on a rainy night," offline mode set energy to 0.41 in balanced mode
+  (#1 Midnight Coding), while Gemini, using the same retrieved docs, chose a
+  calmer 0.32 in genre-first mode (#1 Library Rain) and explained why.
+- **Deterministic offline mode made testing trustworthy.** Offline runs were
+  100% consistent across repeated evaluations, so test failures pointed to real
+  bugs, not randomness.
+- **The evaluation numbers:** 15 of 15 eval cases passed (100%); average
+  confidence 0.78. In my own human review, 5 of 6 passed, average fit 4.5/5.
+  The weakest request was "k-pop for a party" (fit 2/5, Fail): it "failed to
+  meet the vibes even though logically makes sense". The agent mapped k-pop to
+  generic pop and scored 0.94 confidence, because confidence measures fit to
+  the profile the agent built, not to what I actually meant.
+
+### Collaboration with AI
+
+I used AI (Claude Code) throughout: to design the agent (it wrote
+`docs/DESIGN.md` before any code), to implement the retriever, guardrails and
+evaluation harness, to debug my setup (venv, pytest paths, `.env` loading), and
+to diagnose Gemini errors from the logs. I reviewed each design before building,
+and I checked results by running the code myself and comparing with logs.
+
+**A suggestion I accepted:** the AI proposed that the LLM should only *plan*
+(turn the request into a profile) and *explain*, while my original
+deterministic engine does all the scoring and ranking. I accepted this because
+it keeps the system testable and trustworthy: every score can be traced to
+exact points, the original project's output stayed identical, and a bad LLM
+answer can't directly produce a bad ranking.
+
+**A suggestion I did not accept as written:** the AI's design used
+`gemini-2.5-flash` as the main model with a 10-second timeout and no retries;
+when I asked for retries, we moved to a 30-second timeout with up to 3
+attempts. In practice that model had been retired for new users (404), the
+fallback it suggested (`gemini-2.5-flash-lite`) was retired too, and when the
+service was overloaded one request could take about 2 minutes before falling
+back. It also burned through my free quota (429). I changed it: I took the
+current model names from the API's error messages, made the lighter
+`gemini-3.5-flash-lite` the default primary model in the code (it answered in
+under a second), lowered the timeout to 15 seconds in my `.env`, and kept the
+eval offline by default. The
+AI's idea of retries and a fallback model was right, but the specific settings
+didn't fit a free-tier, demo-friendly project.
+
+**What I learned about working with AI:** AI was fast at building structure,
+but it can't know things that changed recently (like which models are still
+available), so I had to verify its choices against real error messages and
+real output instead of trusting them.
+
+---
+
+## 9. Personal Reflection
+
+**Biggest learning moment:** Running the edge-case profiles. I expected the
+system to break on weird inputs, but it didn't crash. It just quietly gave bad
+answers. A "rock fan" who also wanted chill, acoustic music got zero rock songs,
+and a "sad banger" listener got a quiet blues song as their #1. That's when I
+understood that a recommender is just weights, and the weights decide whose
+preferences win. Label points and sound points were almost equal in my design,
+so whichever group agreed with itself took over.
+
+**How AI helped, and when I had to double-check it:** AI helped me analyze the
+dataset (it found that tempo tracked energy closely and acousticness ran
+opposite to it), test weight options before writing code, and suggest edge-case
+profiles I wouldn't have thought of. But I had to check its work. It caught
+my own typo (`target_valence: 40` instead of `0.40`), and I caught it giving
+two different acousticness rules in my README. My first "rock" profile also
+contradicted itself, and I only noticed because the AI's predicted scores
+looked wrong. I verified the scoring by doing two songs by hand (Library Rain
+8.37, Storm Runner 1.38) and confirming the code matched exactly.
+
+**What surprised me:** How much a few simple rules feel like a real
+recommendation. Five "if this matches, add points" checks and a sort produced
+lists that mostly felt right, like all-calm songs for a study playlist. It also
+surprised me how one song, Fuego en la Plaza, kept showing up for very
+different listeners, just because it's high-energy and happy and the catalog
+is small.
+
+**What I'd try next:** Make the diversity penalty stronger or add a hard
+one-per-artist cap (right now it only changes one song across all 8 profiles),
+let users list several genres and dislikes, and test
+with a much bigger, more balanced catalog to see whether the biases I found
+shrink or just change shape.
