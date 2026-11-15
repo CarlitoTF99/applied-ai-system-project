@@ -1,2 +1,4 @@
 pytest
 tabulate
+python-dotenv
+google-genai

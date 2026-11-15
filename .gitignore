@@ -19,3 +19,9 @@ check_rank.py
 
 # Personal scratch notes
 notes.md
+
+# Secrets (copy .env.example to .env and add your key)
+.env
+
+# Agent run logs
+logs/
