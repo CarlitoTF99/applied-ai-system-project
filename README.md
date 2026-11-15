@@ -46,6 +46,106 @@ flow diagram) is in [docs/DESIGN.md](docs/DESIGN.md).
 
 ---
 
+## Architecture
+
+The diagram source is [diagrams/architecture.mmd](diagrams/architecture.mmd), and a rendered copy is at [assets/architecture.png](assets/architecture.png).
+
+```mermaid
+flowchart TD
+    %% ===== INPUT =====
+    IN["User request<br/>python -m src.agent ..."]
+    GIN{"check_input<br/>empty, over 300 chars, off-topic"}
+    REJ["Helpful rejection message<br/>exit code 2"]
+
+    %% ===== PROCESSING: RETRIEVAL =====
+    subgraph RAG["Retrieval - RAG - retriever.py"]
+        KB[("knowledge/*.md<br/>11 docs")]
+        CSV[("data/songs.csv<br/>20 songs")]
+        BM["BM25Index.search<br/>top-3 docs + top-5 song hits"]
+    end
+
+    %% ===== PROCESSING: AGENT LOOP =====
+    subgraph AGENT["Agent loop - run_agent in agent.py"]
+        PLAN{"Planner<br/>planner.py"}
+        LLMP["plan_llm - Gemini JSON plan<br/>retry 5xx or timeout 2s then 5s,<br/>then fallback model once"]
+        OFFP["plan_offline<br/>doc ranges + label votes"]
+        VAL["validate_prefs<br/>schema, clamp 0-1,<br/>map unknown genre or mood"]
+        REC["recommend_songs + score_song<br/>original Module 3 engine"]
+        SC{"Self-check<br/>evaluate_results"}
+        REV["revise_prefs<br/>max 3 attempts, pick_best"]
+        EXL["explain_llm - Gemini"]
+        OG{"check_explanation<br/>only result titles,<br/>cites retrieved docs"}
+        TPL["explain_template<br/>from scoring reasons"]
+    end
+
+    %% ===== OUTPUT =====
+    OUT["OUTPUT: ranked top-k songs<br/>per-feature reasons + caveats<br/>explanation citing docs"]
+    LOG[("logs/agent.log")]
+
+    %% ===== HUMAN AND TESTING CHECKS =====
+    subgraph CHECKS["Human and Testing Checks"]
+        PYT[["pytest - tests/<br/>offline, Gemini errors mocked"]]
+        EVAL[["eval/run_eval.py<br/>test_cases.json to results.md"]]
+        DEV[/"Developer review<br/>reads results.md + agent.log"/]
+        USR[/"End user review<br/>reads reasons + explanation"/]
+    end
+
+    %% ===== main data flow =====
+    IN --> GIN
+    GIN -- reject --> REJ
+    GIN -- ok --> BM
+    KB --> BM
+    CSV --> BM
+    BM -- "docs + song hits" --> PLAN
+    PLAN -- "API key, LLM up" --> LLMP
+    PLAN -- "offline or no key" --> OFFP
+    LLMP -- "all models fail or bad JSON" --> OFFP
+    LLMP -- "raw plan" --> VAL
+    OFFP -- "plan + fallback values" --> VAL
+    VAL --> REC
+    REC --> SC
+    SC -- "issues, attempts left" --> REV
+    REV -- "revised profile" --> VAL
+    SC -- "best attempt, LLM up" --> EXL
+    SC -- "best attempt, offline" --> TPL
+    EXL --> OG
+    OG -- pass --> OUT
+    OG -- "rejected or LLM error" --> TPL
+    TPL --> OUT
+
+    %% ===== logging: every step writes here =====
+    GIN -.-> LOG
+    RAG -.-> LOG
+    AGENT -.-> LOG
+
+    %% ===== what each checkpoint inspects =====
+    RAG -. "unit tests" .-> PYT
+    AGENT -. "unit tests, mocked 503 404 429" .-> PYT
+    OUT -. "properties checked" .-> EVAL
+    OUT -. "read by" .-> USR
+    LOG -. "read by" .-> DEV
+    EVAL -. "results.md" .-> DEV
+
+    %% ===== feedback into the system =====
+    EVAL == "runs same pipeline on 15 cases" ==> IN
+    DEV == "tunes config.py thresholds + knowledge docs" ==> SC
+    USR == "re-run: --verbose, --k, reworded request" ==> IN
+
+    %% ===== styles =====
+    classDef io fill:#e6f4ea,stroke:#2e7d32,stroke-width:2px,color:#000
+    classDef guard fill:#fde8e8,stroke:#c0392b,color:#000
+    classDef llm fill:#e8f0fe,stroke:#3b5bdb,color:#000
+    classDef check fill:#fff4d6,stroke:#b8860b,stroke-width:2px,stroke-dasharray:5 3,color:#000
+    class IN,OUT io
+    class GIN,VAL,OG guard
+    class LLMP,EXL llm
+    class PYT,EVAL,DEV,USR check
+```
+
+A request enters through `python -m src.agent`, and `check_input` either rejects it with a helpful message or passes it to the BM25 retriever. The retriever returns the top 3 knowledge docs and the top 5 matching songs from `data/songs.csv`. The planner turns those docs into a listener profile, using Gemini when it's available (with retries and a fallback model) or deterministic rules when it isn't. `validate_prefs` then repairs the profile before the original Module 3 engine (`recommend_songs` / `score_song`) ranks the catalog. The self-check compares the results with the request, loops back with a revised profile up to 3 attempts, and keeps the best one. The explanation, from Gemini or from the template, must pass `check_explanation` before it reaches the user. Every step writes to `logs/agent.log`. Humans and tests check the AI at the bottom of the diagram: `pytest` unit-tests retrieval and the agent loop with mocked Gemini errors, `eval/run_eval.py` runs the same pipeline on 15 cases and checks the outputs, a developer reads `results.md` and the log to tune thresholds and knowledge docs, and the end user reads the reasons and re-runs with `--verbose`, `--k` or reworded requests.
+
+---
+
 ## Setup (step by step)
 
 **1. Clone the repository**

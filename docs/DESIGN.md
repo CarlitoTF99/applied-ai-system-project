@@ -339,28 +339,98 @@ logged. `.env.example` is committed and `.env` is git-ignored.
 
 ## 11. Data flow
 
+The architecture diagram is in [`diagrams/architecture.mmd`](../diagrams/architecture.mmd), rendered at [`assets/architecture.png`](../assets/architecture.png). It reflects the code as implemented, including the human and testing checkpoints:
+
 ```mermaid
 flowchart TD
-    U[User request] --> A{a. Input guardrail}
-    A -- reject --> R[Helpful message, exit 2]
-    A -- ok --> B[b. Retrieve<br/>BM25 over knowledge/ + songs.csv]
-    KB[(knowledge/*.md)] --> B
-    CSV[(data/songs.csv)] --> B
-    B --> C{c. Plan}
-    C -- API key & LLM ok --> CL[Gemini JSON plan<br/>main model, retry 5xx/timeout 2s/5s,<br/>then fallback model once]
-    C -- offline / LLM error --> CO[Offline rules<br/>score-weighted doc ranges + votes]
-    CL -- bad JSON / 4xx / all models failed --> CO
-    CL --> D[d. Validate & repair<br/>schema, clamp, label mapping via retrieval]
-    CO --> D
-    D --> E[e. Act<br/>recommend_songs — existing engine]
-    E --> F{f. Self-check<br/>score ≥ 0.55·max? matches doc ranges?}
-    F -- issues & attempts < 3 --> V[Revise prefs] --> D
-    F -- pass / out of attempts --> G[g. Explain<br/>Gemini, cites docs]
-    G --> H{Output guardrail<br/>only result titles? cites docs?}
-    H -- fail / LLM error --> T[Template explanation from reasons]
-    H -- pass --> O[Recommendations + explanation]
-    T --> O
-    A & B & C & D & E & F & G & H -.-> L[(logs/agent.log)]
+    %% ===== INPUT =====
+    IN["User request<br/>python -m src.agent ..."]
+    GIN{"check_input<br/>empty, over 300 chars, off-topic"}
+    REJ["Helpful rejection message<br/>exit code 2"]
+
+    %% ===== PROCESSING: RETRIEVAL =====
+    subgraph RAG["Retrieval - RAG - retriever.py"]
+        KB[("knowledge/*.md<br/>11 docs")]
+        CSV[("data/songs.csv<br/>20 songs")]
+        BM["BM25Index.search<br/>top-3 docs + top-5 song hits"]
+    end
+
+    %% ===== PROCESSING: AGENT LOOP =====
+    subgraph AGENT["Agent loop - run_agent in agent.py"]
+        PLAN{"Planner<br/>planner.py"}
+        LLMP["plan_llm - Gemini JSON plan<br/>retry 5xx or timeout 2s then 5s,<br/>then fallback model once"]
+        OFFP["plan_offline<br/>doc ranges + label votes"]
+        VAL["validate_prefs<br/>schema, clamp 0-1,<br/>map unknown genre or mood"]
+        REC["recommend_songs + score_song<br/>original Module 3 engine"]
+        SC{"Self-check<br/>evaluate_results"}
+        REV["revise_prefs<br/>max 3 attempts, pick_best"]
+        EXL["explain_llm - Gemini"]
+        OG{"check_explanation<br/>only result titles,<br/>cites retrieved docs"}
+        TPL["explain_template<br/>from scoring reasons"]
+    end
+
+    %% ===== OUTPUT =====
+    OUT["OUTPUT: ranked top-k songs<br/>per-feature reasons + caveats<br/>explanation citing docs"]
+    LOG[("logs/agent.log")]
+
+    %% ===== HUMAN AND TESTING CHECKS =====
+    subgraph CHECKS["Human and Testing Checks"]
+        PYT[["pytest - tests/<br/>offline, Gemini errors mocked"]]
+        EVAL[["eval/run_eval.py<br/>test_cases.json to results.md"]]
+        DEV[/"Developer review<br/>reads results.md + agent.log"/]
+        USR[/"End user review<br/>reads reasons + explanation"/]
+    end
+
+    %% ===== main data flow =====
+    IN --> GIN
+    GIN -- reject --> REJ
+    GIN -- ok --> BM
+    KB --> BM
+    CSV --> BM
+    BM -- "docs + song hits" --> PLAN
+    PLAN -- "API key, LLM up" --> LLMP
+    PLAN -- "offline or no key" --> OFFP
+    LLMP -- "all models fail or bad JSON" --> OFFP
+    LLMP -- "raw plan" --> VAL
+    OFFP -- "plan + fallback values" --> VAL
+    VAL --> REC
+    REC --> SC
+    SC -- "issues, attempts left" --> REV
+    REV -- "revised profile" --> VAL
+    SC -- "best attempt, LLM up" --> EXL
+    SC -- "best attempt, offline" --> TPL
+    EXL --> OG
+    OG -- pass --> OUT
+    OG -- "rejected or LLM error" --> TPL
+    TPL --> OUT
+
+    %% ===== logging: every step writes here =====
+    GIN -.-> LOG
+    RAG -.-> LOG
+    AGENT -.-> LOG
+
+    %% ===== what each checkpoint inspects =====
+    RAG -. "unit tests" .-> PYT
+    AGENT -. "unit tests, mocked 503 404 429" .-> PYT
+    OUT -. "properties checked" .-> EVAL
+    OUT -. "read by" .-> USR
+    LOG -. "read by" .-> DEV
+    EVAL -. "results.md" .-> DEV
+
+    %% ===== feedback into the system =====
+    EVAL == "runs same pipeline on 15 cases" ==> IN
+    DEV == "tunes config.py thresholds + knowledge docs" ==> SC
+    USR == "re-run: --verbose, --k, reworded request" ==> IN
+
+    %% ===== styles =====
+    classDef io fill:#e6f4ea,stroke:#2e7d32,stroke-width:2px,color:#000
+    classDef guard fill:#fde8e8,stroke:#c0392b,color:#000
+    classDef llm fill:#e8f0fe,stroke:#3b5bdb,color:#000
+    classDef check fill:#fff4d6,stroke:#b8860b,stroke-width:2px,stroke-dasharray:5 3,color:#000
+    class IN,OUT io
+    class GIN,VAL,OG guard
+    class LLMP,EXL llm
+    class PYT,EVAL,DEV,USR check
 ```
 
 ---
