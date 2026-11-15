@@ -6,7 +6,7 @@ valence: 0.10-0.40
 acoustic: any
 genres: blues, electronic, synthwave, folk, classical
 moods: sad, melancholy, moody, dramatic
-aliases: low=sad, down=sad, heartbroken=sad, depressed=sad, crying=sad, lonely=sad, blue=sad, gloomy=melancholy, wistful=melancholy, bittersweet=melancholy, brooding=moody, dark=moody, epic=dramatic
+aliases: low=sad, down=sad, heartbroken=sad, heartbreak=sad, breakup=sad, depressed=sad, crying=sad, lonely=sad, blue=sad, gloomy=melancholy, wistful=melancholy, bittersweet=melancholy, brooding=moody, dark=moody, epic=dramatic
 keywords: sad, heartbroken, lonely, melancholy, down, cry, crying, breakup, blue, gloomy, moody, wistful, heartbreak, tears
 ---
 # Low mood family (sad, melancholy, moody, dramatic)

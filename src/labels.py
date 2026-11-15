@@ -21,6 +21,33 @@ class LabelSpace:
     genre_aliases: Dict[str, str] = field(default_factory=dict)
     mood_aliases: Dict[str, str] = field(default_factory=dict)
     family_reps: Dict[str, str] = field(default_factory=dict)   # mood family name -> representative mood
+    pairs: List[Tuple[str, str]] = field(default_factory=list)  # (genre, mood) of every catalog song
+
+    def resolve(self, value: str, kind: str) -> str:
+        """Return value if it is a catalog label, its alias/family target if it has one, else ""."""
+        value = (value or "").strip().lower()
+        catalog = self.genres if kind == "genre" else self.moods
+        aliases = self.genre_aliases if kind == "genre" else {**self.mood_aliases, **self.family_reps}
+        if value in catalog:
+            return value
+        return aliases.get(value, "")
+
+    def default_label(self, kind: str, other: str = "") -> str:
+        """Pick a label when retrieval gave no votes: the most common one among catalog songs that share
+        the other label (e.g. the usual mood of hip-hop songs), else the catalog-wide most common; ties go
+        alphabetically."""
+        other_kind = "mood" if kind == "genre" else "genre"
+        other = self.resolve(other, other_kind)
+        index, other_index = (0, 1) if kind == "genre" else (1, 0)
+        pool = [pair[index] for pair in self.pairs if other and pair[other_index] == other]
+        if not pool:
+            pool = [pair[index] for pair in self.pairs]
+        if not pool:
+            return (self.genres if kind == "genre" else self.moods)[0]
+        counts: Dict[str, int] = {}
+        for label in pool:
+            counts[label] = counts.get(label, 0) + 1
+        return min(counts, key=lambda label: (-counts[label], label))
 
     @classmethod
     def build(cls, songs: List[Dict], kb_docs: List) -> "LabelSpace":
@@ -44,7 +71,8 @@ class LabelSpace:
                 in_catalog = sorted(m for m in members if m in moods)
                 if in_catalog:
                     family_reps[family] = in_catalog[0]
-        return cls(genres, moods, genre_aliases, mood_aliases, family_reps)
+        pairs = [(song["genre"].strip().lower(), song["mood"].strip().lower()) for song in songs]
+        return cls(genres, moods, genre_aliases, mood_aliases, family_reps, pairs)
 
     def mentions(self, text: str, kind: str) -> List[Tuple[str, bool]]:
         """Return [(word, is_catalog_label)] for genre or mood words in text, in reading order.

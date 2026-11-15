@@ -89,10 +89,20 @@ def apply_energy_modifiers(energy: float, mods: Modifiers) -> float:
 
 
 def expected_ranges(docs: List[Tuple], mods: Modifiers) -> Dict:
-    """Return the energy/valence ranges the results should land in: the top ranged doc's, adjusted by modifiers.
+    """Return what the results should satisfy: the top ranged doc's energy/valence ranges adjusted by modifiers
+    (soft), plus any explicit energy floor/ceiling from the wording (hard).
 
-    Returns {} when no retrieved doc defines ranges (the self-check then skips range checks).
+    The range keys are absent when no retrieved doc defines ranges (the self-check then skips range checks).
     """
+    expected = _doc_ranges(docs, mods)
+    if mods.energy_floor is not None:
+        expected["energy_floor"] = mods.energy_floor
+    if mods.energy_ceiling is not None:
+        expected["energy_ceiling"] = mods.energy_ceiling
+    return expected
+
+
+def _doc_ranges(docs: List[Tuple], mods: Modifiers) -> Dict:
     for doc, _ in docs:
         energy, valence = doc.range("energy"), doc.range("valence")
         if not energy or not valence:
@@ -164,8 +174,8 @@ def plan_offline(
     trace.genre_votes = sorted(((g, round(v, 2)) for g, v in genre_votes.items()), key=lambda p: (-p[1], p[0]))
     trace.mood_votes = sorted(((m, round(v, 2)) for m, v in mood_votes.items()), key=lambda p: (-p[1], p[0]))
 
-    genre = trace.genre_votes[0][0] if trace.genre_votes else labels.genres[0]
-    mood = trace.mood_votes[0][0] if trace.mood_votes else labels.moods[0]
+    genre = trace.genre_votes[0][0] if trace.genre_votes else ""
+    mood = trace.mood_votes[0][0] if trace.mood_votes else ""
 
     # A label the user names explicitly beats the votes. Non-catalog words (k-pop, calm, hype) are kept
     # as written so the validator maps them and records the repair.
@@ -177,6 +187,15 @@ def plan_offline(
     if mood_mentions:
         mood = trace.explicit_mood = mood_mentions[0][0]
         trace.notes.append(f"mood '{mood}' named in request")
+
+    # Nothing retrieved for a label: use what the catalog pairs with the other label (or the catalog's
+    # most common), never an arbitrary alphabetical pick like "ambient"/"angry".
+    if not genre:
+        genre = labels.default_label("genre", other=mood)
+        trace.notes.append(f"no genre evidence; catalog default '{genre}'")
+    if not mood:
+        mood = labels.default_label("mood", other=genre)
+        trace.notes.append(f"no mood evidence; catalog default '{mood}'")
 
     # 3. Acoustic preference: score-weighted vote of docs that take a side
     acoustic_yes = sum(s for d, s in docs if d.meta.get("acoustic") == "yes")

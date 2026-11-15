@@ -19,18 +19,26 @@ src/
   guardrails.py       NEW  check_input(), validate_prefs(), check_explanation()
   selfcheck.py        NEW  evaluate_results() + revise_prefs()
   explainer.py        NEW  explain_llm() + explain_template()
-  llm.py              NEW  thin Gemini wrapper: timeout, JSON mode, never raises
+  llm.py              NEW  Gemini wrapper: timeout, retry/backoff, fallback model, JSON mode, never raises (§9)
+  labels.py           NEW  catalog genres/moods + aliases and mood-family representatives from the KB
   config.py           NEW  load .env (python-dotenv), constants/thresholds
   logging_setup.py    NEW  file + optional console handlers
-knowledge/            NEW  10 markdown docs (see §2)
+knowledge/            NEW  11 markdown docs (see §2)
 logs/agent.log        NEW  created at runtime (logs/ is git-ignored)
+eval/
+  test_cases.json     NEW  15 requests with expected properties (see §12)
+  run_eval.py         NEW  `python -m eval.run_eval`: pass rate, consistency, counters
+  results.md          NEW  written by run_eval
 tests/
   test_recommender.py UNCHANGED
   test_retriever.py   NEW  ranking sanity, empty query, scores sorted
   test_guardrails.py  NEW  input rejects, clamping, k-pop→pop, calm→chill
   test_planner.py     NEW  offline plans for canned requests
   test_agent.py       NEW  offline end-to-end, LLM failure → fallback (mocked)
-.env.example          NEW  GEMINI_API_KEY=  /  GEMINI_MODEL=gemini-2.5-flash
+  test_llm.py         NEW  retry/backoff/fallback-model policy (fake transport, no network)
+  test_selfcheck.py   NEW  self-check issues, revisions, best-attempt choice
+  test_eval.py        NEW  eval property checks + test-case file validity
+.env.example          NEW  GEMINI_API_KEY, GEMINI_MODEL, GEMINI_FALLBACK_MODEL, GEMINI_TIMEOUT
 .gitignore            EDIT add .env, logs/
 requirements.txt      EDIT add python-dotenv, google-genai
 ```
@@ -43,7 +51,7 @@ dependencies beyond `python-dotenv`.
 
 ## 2. Knowledge base (RAG corpus)
 
-**10 markdown docs** in `knowledge/`. Each one starts with a small front-matter
+**11 markdown docs** in `knowledge/`. Each one starts with a small front-matter
 block (parsed with plain string splitting, no YAML dependency) followed by 3–6
 sentences of prose that the retriever indexes:
 
@@ -110,9 +118,10 @@ The prompt contains:
 4. The top song hits.
 5. The JSON schema from §4 and the instruction "Return ONLY JSON."
 
-The call uses `response_mime_type="application/json"`, temperature 0.2 and a
-10-second timeout. The output still goes through `json.loads`, and any failure
-returns `None`, which triggers offline mode.
+The call uses `response_mime_type="application/json"` and temperature 0.2, and
+follows the call policy in §9 (timeout, retries, fallback model). The output
+still goes through `json.loads`, and any failure returns `None`, which triggers
+offline mode.
 
 ### c. Plan, offline mode (`plan_offline`): deterministic, grounded in the retrieved docs
 1. **Numeric targets.** `target_energy` and `target_valence` are the
@@ -204,20 +213,31 @@ After each **Act**, `evaluate_results` produces a list of issues:
 | Low confidence | `top_score / max_score(prefs, mode) < 0.55` |
 | Energy contradiction | the mean energy of the top 3 songs falls outside the top context doc's `energy` range by more than 0.15 (e.g. a "calm" request whose top songs have energy above 0.7) |
 | Valence contradiction | the same comparison against the doc's `valence` range |
-| Label miss | none of the top 3 songs match the requested genre **or** mood, not even a related genre or a mood in the same family |
+| Energy constraint | the request set an explicit energy floor or ceiling ("not too slow", "energetic", "not too loud") and the **#1 song** breaks it by more than 0.05. This is a hard check; the top-3 average can hide a violation. |
+| Explicit miss | a genre or mood the user **named** (after alias mapping) is missing from the top 3, with related genres and same-family moods counting as present |
+| Label miss | none of the top 3 songs match the profile's genre **or** mood, not even a related genre or a mood in the same family |
 
 If no issues are found, the result passes. Otherwise `revise_prefs` makes **one
 targeted change** per attempt and the revised prefs go back through **d → e → f**:
 
-- **Attempt 2.** Energy or valence contradiction: nudge the target 50% toward
-  the doc range midpoint and switch to `energy-focused` mode. Label miss: switch
-  to `mood-first` or `genre-first` mode, whichever label missed.
+- **Attempt 2.** For an energy constraint, move the target 0.1 inside the
+  violated limit. For an energy or valence contradiction, nudge the target 50%
+  toward the doc range midpoint. Either way, switch to `energy-focused` mode.
+  For an explicit miss or a label miss, switch to `genre-first` or `mood-first`
+  mode, whichever label missed.
 - **Attempt 3.** Swap `favorite_genre` (or mood) for the next-highest vote from
-  the offline planner's tally.
+  the offline planner's tally. Labels the user named are never swapped.
 
 The loop stops after **3 attempts in total** (the original plus 2 revisions).
-The agent returns the attempt with the fewest issues, breaking ties on the
-higher normalized top score. That is not necessarily the last attempt. Every
+The agent returns the attempt with the fewest issues. Ties go to the smallest
+total violation, then to the **earliest** attempt. The score ratio is
+deliberately not a tie-breaker: a label swap can score higher against its own,
+less faithful profile while fixing nothing. The evaluation in §12 found this
+with "country songs about heartbreak", where the swapped mood "hopeful" won.
+
+If no knowledge doc matches (e.g. "play me some songs"), the planner uses
+catalog-majority labels, or the labels that co-occur with the one it does know
+(e.g. rap → hip-hop / confident), and the agent adds a "general picks" caveat. Every
 attempt logs its prefs, top-3 songs with scores, the issues found and the
 change made. Remaining issues are shown to the user as a short caveat (e.g.
 "no song in the catalog is quieter than 0.28").
@@ -268,12 +288,21 @@ The line format is
 
 ## 9. Error handling
 
-- `llm.py` wraps every call in `try/except Exception` with a timeout and returns
-  `None` on any failure, logged at WARNING with the exception type. Callers
-  treat `None` as "use offline". The fallback is per step: a failed plan call
-  doesn't stop the agent from trying the LLM for the explanation, unless the
-  failure was an authentication or missing-key error, which disables the LLM
-  for the rest of the run.
+- **LLM call policy (`llm.py`).** Each LLM call (plan, explain) works through these steps in order:
+
+  | Step | Rule |
+  |---|---|
+  | Main model | `GEMINI_MODEL` (default `gemini-3.5-flash-lite`). Each attempt times out after `GEMINI_TIMEOUT` seconds (default 30). |
+  | Retries | Up to **2** retries, waiting **2s** and then **5s**, **only** for timeouts and 5xx errors (500 / 503 UNAVAILABLE / 504 DEADLINE_EXCEEDED). The SDK's own retries are turned off (`HttpRetryOptions(attempts=1)`). |
+  | Never retried | Any **4xx**: 400 bad request, 401/403 bad key, 404 unknown model and **429 quota**. |
+  | Fallback model | `GEMINI_FALLBACK_MODEL` (default `gemini-3.8-flash`; `none` disables it) gets **one** attempt if the main model still fails. It is skipped after an auth error, since every model would reject the key. A 404 marks the main model unusable, so later calls in the same run go straight to the fallback. |
+  | Offline | If every model fails, the call returns `None` and the step uses its offline path (the offline plan or the template explanation). |
+
+  Every attempt is logged with the model, `attempt n/N`, the error, the elapsed
+  time and the retry decision. The worst case per call is
+  3 × timeout + 7s + 1 × timeout. The fallback is per step: a failed plan call
+  doesn't stop the agent from trying the LLM for the explanation, unless an
+  auth error disabled the LLM for the rest of the run.
 - Validation means `score_song` never sees bad input.
 - `agent.main()` wraps `run_agent` in a final catch. On an unexpected error it
   logs the traceback, prints "Something went wrong — see logs/agent.log" and
@@ -290,15 +319,21 @@ The line format is
 python -m src.agent "sad songs but not too slow" [--offline] [--verbose] [--k 5] [--table]
 ```
 - `--offline` skips the LLM even if a key is set.
-- `--k` sets the number of songs (default 5, clamped to 1–20) and the number of KB docs retrieved (3).
+- `--k` sets the number of songs (default 5, clamped to 1–20). The number of KB docs retrieved is fixed at 3.
 - `--table` reuses `print_table` from `src/main.py`.
 
 The output is the request summary, the retrieved docs, the final profile, a
 repairs/attempts summary, the recommendations and the explanation.
 
-`config.py` calls `load_dotenv()` and reads `GEMINI_API_KEY` and
-`GEMINI_MODEL` (default `gemini-2.5-flash`). The key is never logged.
-`.env.example` is committed and `.env` is git-ignored.
+`config.py` calls `load_dotenv()` and reads these settings. The key is never
+logged. `.env.example` is committed and `.env` is git-ignored.
+
+| Variable | Default |
+|---|---|
+| `GEMINI_API_KEY` | none; without it the agent runs offline |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` |
+| `GEMINI_FALLBACK_MODEL` | `gemini-3.8-flash` (`none` disables it) |
+| `GEMINI_TIMEOUT` | `30` seconds per attempt |
 
 ---
 
@@ -312,9 +347,9 @@ flowchart TD
     KB[(knowledge/*.md)] --> B
     CSV[(data/songs.csv)] --> B
     B --> C{c. Plan}
-    C -- API key & LLM ok --> CL[Gemini JSON plan<br/>prompt includes retrieved docs]
+    C -- API key & LLM ok --> CL[Gemini JSON plan<br/>main model, retry 5xx/timeout 2s/5s,<br/>then fallback model once]
     C -- offline / LLM error --> CO[Offline rules<br/>score-weighted doc ranges + votes]
-    CL -- bad JSON / timeout --> CO
+    CL -- bad JSON / 4xx / all models failed --> CO
     CL --> D[d. Validate & repair<br/>schema, clamp, label mapping via retrieval]
     CO --> D
     D --> E[e. Act<br/>recommend_songs — existing engine]
@@ -327,3 +362,28 @@ flowchart TD
     T --> O
     A & B & C & D & E & F & G & H -.-> L[(logs/agent.log)]
 ```
+
+---
+
+## 12. Evaluation harness
+
+`python -m eval.run_eval` runs every case in `eval/test_cases.json` through
+`run_agent`. It runs **offline** by default; `--llm` uses Gemini, at about 2
+calls per accepted case per run, which free-tier quota may not cover, so use
+`--runs 1` to save calls.
+
+- **Cases.** There are 15: 5 normal, 6 edge (unknown genre, conflicting energy
+  and mood, a named genre the catalog can't satisfy, a vague request) and 4
+  rejects. Each case lists **expected properties**, not exact songs: average
+  energy/valence bounds, allowed top-1 genres/moods, profile labels, a repair
+  that must be logged, an expected rejection rule, and "honored **or**
+  flagged" checks (`*_or_caveat`). Every accepted case is also checked for
+  `explanation_grounded` (no catalog title outside the results).
+- **Consistency.** Each case runs `--runs` times (default 3) and passes when
+  every run has the same top 5, or the same rejection rule.
+- **Counters.** Guardrail rejections, repairs, self-check retries, runs with
+  caveats, and, with `--llm`, LLM plan/explanation fallbacks, Gemini API
+  retries and fallback-model use.
+- **Output.** A plain-ASCII summary on the console and `eval/results.md`
+  (summary, a per-case table, and run-1 details for each case). The exit code
+  is 1 if any case fails.

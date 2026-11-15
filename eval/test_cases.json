@@ -1,0 +1,95 @@
+{
+  "_comment": "Expected PROPERTIES, not exact songs. avg_* is over the top 5 results; target_* is the final profile; *_or_caveat passes if the request is honored OR the agent told the user it could not be. Property names: PROPERTY_CHECKS in eval/run_eval.py.",
+  "cases": [
+    {
+      "id": "study-rain",
+      "category": "normal",
+      "request": "something chill for studying on a rainy night",
+      "expect": {"max_avg_energy": 0.5, "top1_genre_in": ["lofi", "ambient", "jazz"], "likes_acoustic": true, "has_caveat": false}
+    },
+    {
+      "id": "gym-hype",
+      "category": "normal",
+      "request": "hype songs for the gym",
+      "expect": {"min_avg_energy": 0.7, "top1_genre_in": ["pop", "rock", "metal", "hip-hop"], "likes_acoustic": false}
+    },
+    {
+      "id": "sleep-calm",
+      "category": "normal",
+      "request": "calm music to help me fall asleep",
+      "expect": {"max_avg_energy": 0.45, "top1_mood_in": ["chill", "relaxed", "focused"], "profile_mood": "chill", "repair_contains": "calm"}
+    },
+    {
+      "id": "road-trip",
+      "category": "normal",
+      "request": "upbeat songs for a road trip with friends",
+      "expect": {"min_avg_energy": 0.55, "min_avg_valence": 0.55, "min_target_energy": 0.5}
+    },
+    {
+      "id": "metal-lifting",
+      "category": "normal",
+      "request": "angry heavy metal for lifting weights",
+      "expect": {"top1_genre_in": ["metal", "rock"], "top1_mood_in": ["angry", "intense"], "min_avg_energy": 0.7, "repair_contains": "heavy metal"}
+    },
+    {
+      "id": "sad-not-slow",
+      "category": "edge",
+      "request": "sad songs but not too slow",
+      "expect": {"max_avg_valence": 0.45, "any_top3_mood_in": ["sad", "melancholy", "moody"], "min_target_energy": 0.5, "min_top1_energy_or_caveat": 0.45}
+    },
+    {
+      "id": "kpop-party",
+      "category": "edge",
+      "request": "k-pop for a party",
+      "expect": {"profile_genre": "pop", "repair_contains": "k-pop", "min_avg_energy": 0.7, "min_avg_valence": 0.65}
+    },
+    {
+      "id": "sad-energetic",
+      "category": "edge",
+      "request": "sad but energetic",
+      "expect": {"max_target_valence": 0.4, "min_target_energy": 0.5, "any_top3_mood_in": ["sad", "melancholy", "moody", "angry", "dramatic"], "min_top1_energy_or_caveat": 0.45}
+    },
+    {
+      "id": "country-heartbreak",
+      "category": "edge",
+      "request": "country songs about heartbreak",
+      "expect": {"profile_genre": "country", "profile_mood": "sad", "genre_in_top3_or_caveat": "country", "any_top3_mood_in": ["sad", "melancholy", "moody"]}
+    },
+    {
+      "id": "quiet-rock",
+      "category": "edge",
+      "request": "rock but not too loud",
+      "expect": {"max_top1_energy_or_caveat": 0.65, "genre_in_top3_or_caveat": "rock"}
+    },
+    {
+      "id": "vague",
+      "category": "edge",
+      "request": "play me some songs",
+      "expect": {"has_caveat": true}
+    },
+    {
+      "id": "reject-empty",
+      "category": "reject",
+      "request": "",
+      "expect": {"rejected": "empty"}
+    },
+    {
+      "id": "reject-too-long",
+      "category": "reject",
+      "request": "I want some songs for a long drive through the mountains with my family, something that everyone in the car can enjoy, from my grandparents who like old country and folk to my little brother who only listens to pop and hip-hop, and my parents who like rock, with a mix of energy so nobody falls asleep but nobody gets annoyed either, please",
+      "expect": {"rejected": "too_long"}
+    },
+    {
+      "id": "reject-weather",
+      "category": "reject",
+      "request": "what's the weather tomorrow",
+      "expect": {"rejected": "off_topic"}
+    },
+    {
+      "id": "reject-code",
+      "category": "reject",
+      "request": "write me a python function that sorts a list",
+      "expect": {"rejected": "off_topic"}
+    }
+  ]
+}

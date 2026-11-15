@@ -31,7 +31,8 @@ RANGE_TOLERANCE = 0.15       # top-3 mean may sit this far outside a doc range b
 MAX_EXPLANATION_CHARS = 1000
 
 # --- LLM ---
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
+DEFAULT_GEMINI_FALLBACK_MODEL = "gemini-3.8-flash"   # set GEMINI_FALLBACK_MODEL=none to disable
 DEFAULT_GEMINI_TIMEOUT = 30.0     # seconds per attempt; override with GEMINI_TIMEOUT
 LLM_RETRY_DELAYS = (2.0, 5.0)     # backoff before retry 1 and retry 2 (timeouts / 5xx only)
 LLM_TEMPERATURE = 0.2
@@ -60,8 +61,11 @@ def gemini_model() -> str:
 
 
 def gemini_fallback_model() -> str:
-    """Return the optional lighter model tried once after the main model fails, or "" if unset."""
-    return os.getenv("GEMINI_FALLBACK_MODEL", "").strip()
+    """Return the model tried once after the main model fails; blank/unset uses the default, "none" disables it."""
+    value = os.getenv("GEMINI_FALLBACK_MODEL", "").strip()
+    if value.lower() == "none":
+        return ""
+    return value or DEFAULT_GEMINI_FALLBACK_MODEL
 
 
 def gemini_timeout() -> float:

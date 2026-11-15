@@ -25,3 +25,6 @@ notes.md
 
 # Agent run logs
 logs/
+
+sample_runs.txt
+offline_run.txt

@@ -147,6 +147,35 @@ def test_every_attempt_is_logged(tmp_path, caplog):
     assert any("gemini-2.5-flash attempt 2/3 succeeded in" in m for m in messages)
 
 
+@pytest.mark.parametrize("raw, expected", [("", 30.0), ("15", 15.0), ("abc", 30.0), ("-5", 30.0), ("2.5", 2.5)])
+def test_gemini_timeout_from_env(monkeypatch, raw, expected):
+    from src import config
+    monkeypatch.setenv("GEMINI_TIMEOUT", raw)
+    assert config.gemini_timeout() == expected
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("", "gemini-3.8-flash"), ("none", ""), ("NONE", ""), ("gemini-x", "gemini-x"),
+])
+def test_fallback_model_from_env(monkeypatch, raw, expected):
+    from src import config
+    monkeypatch.setenv("GEMINI_FALLBACK_MODEL", raw)
+    assert config.gemini_fallback_model() == expected
+
+
+def test_default_models(monkeypatch):
+    from src import config
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    monkeypatch.delenv("GEMINI_FALLBACK_MODEL", raising=False)
+    assert config.gemini_model() == "gemini-3.5-flash-lite"
+    assert config.gemini_fallback_model() == "gemini-3.8-flash"
+
+
+def test_fallback_equal_to_main_model_is_ignored():
+    client = GeminiClient("", "gemini-3.8-flash", get_run_logger("t"), fallback_model="gemini-3.8-flash")
+    assert client.fallback_model == ""
+
+
 def test_client_without_key_is_unavailable():
     client = GeminiClient("", "gemini-2.5-flash", get_run_logger("t"))
     assert not client.available and "GEMINI_API_KEY" in client.disabled_reason

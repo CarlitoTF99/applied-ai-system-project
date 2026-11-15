@@ -29,6 +29,9 @@ LINE_WIDTH = 64
 NAME_WIDTH = 44
 ENGINE_KEYS = ("favorite_genre", "favorite_mood", "target_energy", "target_valence", "likes_acoustic")
 
+VAGUE_CAVEAT = ("Your request didn't match any mood, activity or genre notes, so these are general picks - "
+                "try adding a mood, activity or genre.")
+
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_REJECTED = 2
@@ -72,6 +75,7 @@ class AgentResult:
     request: str
     run_id: str
     message: str = ""
+    reject_rule: str = ""                         # guardrail rule that rejected the request, if any
     plan_source: str = "offline"                  # "llm" | "offline"
     docs: List[Tuple] = field(default_factory=list)
     song_hits: List[Tuple] = field(default_factory=list)
@@ -123,7 +127,7 @@ def run_agent(request, res: Resources, llm: Optional[GeminiClient] = None, k: in
         log.info("stripped control characters from request", step="input")
     if not check.ok:
         log.info(f"rejected by rule '{check.rule}'", step="input")
-        return AgentResult("rejected", check.request, run_id, message=check.message)
+        return AgentResult("rejected", check.request, run_id, message=check.message, reject_rule=check.rule)
     log.info("passed input guardrail", step="input")
     request = check.request
 
@@ -166,9 +170,19 @@ def run_agent(request, res: Resources, llm: Optional[GeminiClient] = None, k: in
 
     # e + f. Act and self-check, revising up to MAX_ATTEMPTS - 1 times
     expected = expected_ranges(docs, mods)
-    if expected:
+    if "source" in expected:
         log.info(f"expected ranges from {expected['source']}: energy {expected['energy'][0]:.2f}-{expected['energy'][1]:.2f}, "
                  f"valence {expected['valence'][0]:.2f}-{expected['valence'][1]:.2f}", step="selfcheck")
+    for key, word, kind in (("explicit_genre", trace.explicit_genre, "genre"), ("explicit_mood", trace.explicit_mood, "mood")):
+        resolved = res.labels.resolve(word, kind) if word else ""
+        if resolved:
+            expected[key] = resolved
+    for key in ("energy_floor", "energy_ceiling"):
+        if key in expected:
+            log.info(f"explicit {key.replace('_', ' ')} {expected[key]:.2f} from request wording", step="selfcheck")
+    for key in ("explicit_genre", "explicit_mood"):
+        if key in expected:
+            log.info(f"{key.replace('_', ' ')} '{expected[key]}' must appear in top 3", step="selfcheck")
     attempts = [_act(prefs, res, k, 1, "initial plan", expected, log)]
     while attempts[-1].issues and len(attempts) < config.MAX_ATTEMPTS:
         current = attempts[-1]
@@ -184,6 +198,9 @@ def run_agent(request, res: Resources, llm: Optional[GeminiClient] = None, k: in
     final = pick_best(attempts)
     log.info(f"using attempt {final.number} of {len(attempts)} ({len(final.issues)} issue(s))", step="selfcheck")
     caveats = list(dict.fromkeys(caveat_for(issue) for issue in final.issues))
+    if not docs:
+        caveats.insert(0, VAGUE_CAVEAT)
+        log.info("no knowledge doc matched; adding vague-request caveat", step="selfcheck")
 
     # g. Explain + output guardrail
     doc_ids = [doc.doc_id for doc, _ in docs]
@@ -284,6 +301,24 @@ def print_result(result: AgentResult, offline: bool, table: bool) -> None:
     out(f"\n(run {result.run_id} logged to logs/agent.log)")
 
 
+def build_llm(log, offline: bool = False) -> Optional[GeminiClient]:
+    """Create the Gemini client from .env settings (None when offline) and log its configuration."""
+    if offline:
+        log.info("offline mode requested (--offline)", step="start")
+        return None
+    config.load_env()
+    llm = GeminiClient(
+        config.gemini_api_key(), config.gemini_model(), log,
+        timeout=config.gemini_timeout(), fallback_model=config.gemini_fallback_model(),
+    )
+    log.info(f"Gemini model={llm.model} fallback={llm.fallback_model or 'none'} "
+             f"timeout={llm.timeout:g}s retries={len(llm.retry_delays)} "
+             f"backoff={'/'.join(f'{d:g}s' for d in llm.retry_delays)}", step="start")
+    if not llm.available:
+        log.warning(f"LLM unavailable ({llm.disabled_reason}); running offline", step="start")
+    return llm
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="VibeMatch Agent: describe what you want to hear.")
     parser.add_argument("request", nargs="?", default="", help='e.g. "hype songs for the gym"')
@@ -306,20 +341,7 @@ def main(argv=None) -> int:
         if k != args.k:
             log.warning(f"--k {args.k} clamped to {k}", step="start")
 
-        llm = None
-        if args.offline:
-            log.info("offline mode requested (--offline)", step="start")
-        else:
-            llm = GeminiClient(
-                config.gemini_api_key(), config.gemini_model(), log,
-                timeout=config.gemini_timeout(), fallback_model=config.gemini_fallback_model(),
-            )
-            log.info(f"Gemini model={llm.model} fallback={llm.fallback_model or 'none'} "
-                     f"timeout={llm.timeout:g}s retries={len(llm.retry_delays)} "
-                     f"backoff={'/'.join(f'{d:g}s' for d in llm.retry_delays)}", step="start")
-            if not llm.available:
-                log.warning(f"LLM unavailable ({llm.disabled_reason}); running offline", step="start")
-
+        llm = build_llm(log, offline=args.offline)
         res = load_resources(log)
         result = run_agent(args.request, res, llm=llm, k=k, run_id=run_id)
         if result.status == "rejected":

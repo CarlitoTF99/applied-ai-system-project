@@ -110,6 +110,45 @@ def test_self_check_retries_on_contradiction(res):
     assert result.caveats                              # leftover issue is surfaced to the user
 
 
+def test_vague_request_gets_catalog_defaults_and_a_caveat(res):
+    result = run_agent("play me some songs", res)
+    assert result.docs == []
+    assert result.caveats and "general picks" in result.caveats[0]
+    # Before the fix this fell back to the alphabetically first labels ("ambient" / "angry")
+    assert result.final.prefs["favorite_mood"] != "angry"
+    assert "general picks" in result.explanation
+
+
+def test_explicit_energy_limit_is_flagged_when_catalog_cannot_honor_it(res):
+    result = run_agent("sad songs but not too slow", res)
+    assert result.attempts[0].issues[0].kind == "energy_constraint"
+    assert len(result.attempts) > 1
+    assert any("energy you asked for" in c for c in result.caveats)
+
+
+def test_mix_request_turns_on_diversity(res):
+    result = run_agent("give me a mix of party songs", res)
+    assert result.final.prefs["diverse"] is True
+    artists = [song["artist"] for song, _, _ in result.final.results]
+    assert len(set(artists)) == len(artists)
+
+
+def test_agent_works_without_knowledge_base(res, monkeypatch, tmp_path):
+    monkeypatch.setattr(agent.config, "KNOWLEDGE_DIR", tmp_path / "missing")
+    bare = load_resources(get_run_logger("test-nokb"))
+    assert bare.kb_docs == []
+    result = run_agent("hype songs for the gym", bare)
+    assert result.status == "ok" and result.final.results
+    assert result.caveats
+
+
+def test_cli_clamps_k(capsys):
+    assert main(["hype songs for the gym", "--offline", "--k", "99"]) == EXIT_OK
+    assert "Top 20 recommendations" in capsys.readouterr().out
+    assert main(["hype songs for the gym", "--offline", "--k", "0"]) == EXIT_OK
+    assert "Top 1 recommendations" in capsys.readouterr().out
+
+
 def test_cli_exit_codes_and_ascii_output(capsys):
     assert main(["", "--offline"]) == EXIT_REJECTED
     assert main(["hype songs for the gym", "--offline", "--table"]) == EXIT_OK
