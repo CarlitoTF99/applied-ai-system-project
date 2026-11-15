@@ -1,0 +1,44 @@
+$ python -m eval.run_eval
+# captured 2026-11-15 15:02 by `python -m scripts.capture_evidence` (offline, no API calls)
+# exit code: 0
+
+==============================================================================
+VibeMatch evaluation  |  mode: offline  |  15 cases x 3 runs
+==============================================================================
+case                category request                   result conf   consistent
+------------------------------------------------------------------------------
+study-rain          normal   something chill for s...  PASS   0.99   yes
+gym-hype            normal   hype songs for the gym    PASS   0.87   yes
+sleep-calm          normal   calm music to help me...  PASS   0.94   yes
+road-trip           normal   upbeat songs for a ro...  PASS   0.93   yes
+metal-lifting       normal   angry heavy metal for...  PASS   0.86   yes
+sad-not-slow        edge     sad songs but not too...  PASS   0.66   yes
+kpop-party          edge     k-pop for a party         PASS   0.94   yes
+sad-energetic       edge     sad but energetic         PASS   0.62   yes
+country-heartbreak  edge     country songs about h...  PASS   0.66   yes
+quiet-rock          edge     rock but not too loud     PASS   0.44   yes
+vague               edge     play me some songs        PASS   0.71   yes
+reject-empty        reject   ""                        PASS   n/a    yes
+reject-too-long     reject   I want some songs for...  PASS   n/a    yes
+reject-weather      reject   what's the weather to...  PASS   n/a    yes
+reject-code         reject   write me a python fun...  PASS   n/a    yes
+------------------------------------------------------------------------------
+Cases passed:       15/15 (100%)
+Properties passed:  52/52 (100%)
+Consistency:        15/15 cases identical across 3 runs (100%)
+Avg confidence:     0.78 overall, 0.78 passed, n/a (no failures) failed (11 accepted cases; rejected cases have no confidence)
+Counters over all 45 runs (per pass = total / 3):
+  guardrail rejections                 12   per pass 4.0
+  repairs (total)                      18   per pass 6.0
+  runs with >=1 repair                 18   per pass 6.0
+  self-check retries                   18   per pass 6.0
+  runs with caveats                    12   per pass 4.0
+------------------------------------------------------------------------------
+Summary: 15 out of 15 cases passed (100%); offline consistency 100%; average
+confidence 0.78; the agent struggled when confidence fell below 0.75: "rock
+but not too loud" (0.44: top score only 66% of max), "sad but energetic"
+(0.62: 2 self-check retries), "sad songs but not too slow" (0.66: 2 self-check
+retries), "country songs about heartbreak" (0.66: top score only 57% of max),
+"play me some songs" (0.71: no knowledge doc matched the request).
+==============================================================================
+Report written to eval\results.md

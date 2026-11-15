@@ -756,7 +756,7 @@ experiment, bias analysis and stretch features) is preserved in
 
 ## About This Project (Portfolio)
 
-**Repo:** https://github.com/CarlitoTF99/applied-ai-system-final
+**Repo:** github.com/CarlitoTF99/applied-ai-system-final
 
 This project shows that I build AI systems I can explain and trust, not just
 ones that produce an answer. I extended a simple rule-based music recommender

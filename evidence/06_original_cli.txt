@@ -1,0 +1,48 @@
+$ python -m src.main --table --diverse
+# captured 2026-11-15 15:02 by `python -m scripts.capture_evidence` (offline, no API calls)
+# exit code: 0
+
+Loaded songs: 20
+
+######################################################
+PROFILE: High-Energy Pop
+genre=pop | mood=happy | energy=0.80 | valence=0.80 | acoustic=no
+mode=balanced | diversity=on
+######################################################
+
+Top 5 recommendations
++--------+-------------------+---------------+------------+-------------------------------------------------+
+|   Rank | Title             | Artist        | Score      | Reasons                                         |
++========+===================+===============+============+=================================================+
+|      1 | Sunrise City      | Neon Echo     | 8.37 / 8.5 | genre match: pop (+2.50)                        |
+|        |                   |               |            | mood match: happy (+2.00)                       |
+|        |                   |               |            | energy 0.82 vs target 0.80 (+1.99)              |
+|        |                   |               |            | valence 0.84 vs target 0.80 (+1.47)             |
+|        |                   |               |            | acousticness 0.18, prefers non-acoustic (+0.41) |
++--------+-------------------+---------------+------------+-------------------------------------------------+
+|      2 | Rooftop Lights    | Indigo Parade | 7.04 / 8.5 | related genre: indie pop ~ pop (+1.25)          |
+|        |                   |               |            | mood match: happy (+2.00)                       |
+|        |                   |               |            | energy 0.76 vs target 0.80 (+1.96)              |
+|        |                   |               |            | valence 0.81 vs target 0.80 (+1.50)             |
+|        |                   |               |            | acousticness 0.35, prefers non-acoustic (+0.33) |
++--------+-------------------+---------------+------------+-------------------------------------------------+
+|      3 | Gym Hero          | Max Pulse     | 6.07 / 8.5 | genre match: pop (+2.50)                        |
+|        |                   |               |            | no mood match: intense (+0.00)                  |
+|        |                   |               |            | energy 0.93 vs target 0.80 (+1.62)              |
+|        |                   |               |            | valence 0.77 vs target 0.80 (+1.48)             |
+|        |                   |               |            | acousticness 0.05, prefers non-acoustic (+0.47) |
++--------+-------------------+---------------+------------+-------------------------------------------------+
+|      4 | Island Slowdown   | Roots Harbor  | 3.67 / 8.5 | no genre match: reggae (+0.00)                  |
+|        |                   |               |            | mood family match: carefree ~ happy (+1.00)     |
+|        |                   |               |            | energy 0.55 vs target 0.80 (+0.92)              |
+|        |                   |               |            | valence 0.85 vs target 0.80 (+1.45)             |
+|        |                   |               |            | acousticness 0.40, prefers non-acoustic (+0.30) |
++--------+-------------------+---------------+------------+-------------------------------------------------+
+|      5 | Fuego en la Plaza | Los Faroles   | 3.57 / 8.5 | no genre match: latin (+0.00)                   |
+|        |                   |               |            | no mood match: energetic (+0.00)                |
+|        |                   |               |            | energy 0.86 vs target 0.80 (+1.91)              |
+|        |                   |               |            | valence 0.88 vs target 0.80 (+1.38)             |
+|        |                   |               |            | acousticness 0.45, prefers non-acoustic (+0.28) |
++--------+-------------------+---------------+------------+-------------------------------------------------+
+
+[trimmed: first of 8 profiles shown; run the command to see all]

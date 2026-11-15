@@ -1,0 +1,5 @@
+$ python -m src.agent "" --offline
+# captured 2026-11-15 15:02 by `python -m scripts.capture_evidence` (offline, no API calls)
+# exit code: 2
+
+Tell me what you'd like to hear, e.g. 'upbeat songs for a road trip'.

@@ -1,6 +1,6 @@
 # VibeMatch Evaluation Results
 
-- Generated: 2026-11-15 14:46
+- Generated: 2026-11-15 15:02
 - Mode: **offline**
 - 15 cases x 3 runs each = 45 agent runs
 

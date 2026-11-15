@@ -1,0 +1,97 @@
+$ python -m src.agent "k-pop for a party" --offline --verbose
+# captured 2026-11-15 15:02 by `python -m scripts.capture_evidence` (offline, no API calls)
+# exit code: 0
+
+[INFO] start: offline mode requested (--offline)
+[INFO] setup: loaded 20 songs and 11 knowledge docs
+[INFO] start: request='k-pop for a party' k=5 docs_k=3 llm=no
+[INFO] input: passed input guardrail
+[INFO] retrieve: doc party.md score=5.173
+[INFO] retrieve: doc genre_notes.md score=4.208
+[INFO] retrieve: doc mood_bright.md score=1.116
+[INFO] retrieve: song Sunrise City score=1.809
+[INFO] retrieve: song Gym Hero score=1.809
+[INFO] retrieve: song Rooftop Lights score=1.767
+[INFO] plan: doc-weighted energy=0.81 valence=0.83 from party.md(5.17), mood_bright.md(1.12)
+[INFO] plan: genre 'k-pop' named in request
+[INFO] plan: mode=energy-focused (top doc party.md)
+[INFO] plan: offline plan: {'favorite_genre': 'k-pop', 'favorite_mood': 'happy', 'target_energy': 0.81, 'target_valence': 0.83, 'likes_acoustic': False, 'mode': 'energy-focused', 'diverse': False}
+[INFO] validate: repair: favorite_genre 'k-pop' -> 'pop' (alias from knowledge base)
+[INFO] validate: validated prefs: {'favorite_genre': 'pop', 'favorite_mood': 'happy', 'target_energy': 0.81, 'target_valence': 0.83, 'likes_acoustic': False, 'mode': 'energy-focused', 'diverse': False}
+[INFO] selfcheck: expected ranges from party.md: energy 0.70-0.95, valence 0.70-0.95
+[INFO] selfcheck: explicit genre 'pop' must appear in top 3
+[INFO] act: attempt 1 (initial plan): prefs={'favorite_genre': 'pop', 'favorite_mood': 'happy', 'target_energy': 0.81, 'target_valence': 0.83, 'likes_acoustic': False, 'mode': 'energy-focused', 'diverse': False}
+[INFO] act: attempt 1 top-3: Sunrise City 8.41, Rooftop Lights 7.46, Gym Hero 6.27 (max 8.5)
+[INFO] selfcheck: attempt 1 passed self-check
+[INFO] selfcheck: using attempt 1 of 1 (0 issue(s))
+[INFO] explain: template explanation used; output guardrail check: ok
+[INFO] confidence: confidence 0.94 (high): top score 99% of max, 1 repair, no retries; lowered by: -0.05 1 repair to the plan; -0.01 top score only 99% of max
+================================================================
+VibeMatch Agent  |  plan: offline  (--offline)
+Request: "k-pop for a party"
+================================================================
+
+[1] Retrieved knowledge docs
+    party.md           score 5.17   (context)
+    genre_notes.md     score 4.21   (genre)
+    mood_bright.md     score 1.12   (mood)
+    song evidence: Sunrise City (1.81), Gym Hero (1.81), Rooftop Lights (1.77)
+
+[2] Profile (attempt 1)
+    genre=pop | mood=happy | energy=0.81 | valence=0.83 | acoustic=no
+    mode=energy-focused | diverse=no
+
+[3] Repairs
+    - favorite_genre 'k-pop' -> 'pop' (alias from knowledge base)
+
+[4] Self-check (1 attempt(s), using #1)
+    #1 initial plan
+       top: Sunrise City 8.41/8.5 -> pass
+
+[5] Top 5 recommendations
+----------------------------------------------------------------
+1. Sunrise City - Neon Echo                    Score: 8.41 / 8.5
+     + genre match: pop (+1.50)
+     + mood match: happy (+1.50)
+     + energy 0.82 vs target 0.81 (+4.00)
+     + valence 0.84 vs target 0.83 (+1.00)
+     + acousticness 0.18, prefers non-acoustic (+0.41)
+2. Rooftop Lights - Indigo Parade              Score: 7.46 / 8.5
+     + related genre: indie pop ~ pop (+0.75)
+     + mood match: happy (+1.50)
+     + energy 0.76 vs target 0.81 (+3.88)
+     + valence 0.81 vs target 0.83 (+1.00)
+     + acousticness 0.35, prefers non-acoustic (+0.33)
+3. Gym Hero - Max Pulse                        Score: 6.27 / 8.5
+     + genre match: pop (+1.50)
+     + no mood match: intense (+0.00)
+     + energy 0.93 vs target 0.81 (+3.34)
+     + valence 0.77 vs target 0.83 (+0.96)
+     + acousticness 0.05, prefers non-acoustic (+0.47)
+4. Fuego en la Plaza - Los Faroles             Score: 5.13 / 8.5
+     + no genre match: latin (+0.00)
+     + no mood match: energetic (+0.00)
+     + energy 0.86 vs target 0.81 (+3.88)
+     + valence 0.88 vs target 0.83 (+0.97)
+     + acousticness 0.45, prefers non-acoustic (+0.28)
+5. Concrete Psalms - Verse Theory              Score: 5.02 / 8.5
+     + no genre match: hip-hop (+0.00)
+     + no mood match: confident (+0.00)
+     + energy 0.80 vs target 0.81 (+4.00)
+     + valence 0.62 vs target 0.83 (+0.58)
+     + acousticness 0.12, prefers non-acoustic (+0.44)
+
+[6] Explanation (template)
+    Based on [party.md, genre_notes.md, mood_bright.md], I looked for pop / happy songs around energy 0.81 and valence 0.83 with an electric sound.
+    #1 Sunrise City by Neon Echo: energy 0.82 vs target 0.81, genre match: pop, mood match: happy.
+    #2 Rooftop Lights by Indigo Parade: energy 0.76 vs target 0.81, mood match: happy, valence 0.81 vs target 0.83.
+    #3 Gym Hero by Max Pulse: energy 0.93 vs target 0.81, genre match: pop, valence 0.77 vs target 0.83.
+    #4 Fuego en la Plaza by Los Faroles: energy 0.86 vs target 0.81, valence 0.88 vs target 0.83, acousticness 0.45, prefers non-acoustic.
+    #5 Concrete Psalms by Verse Theory: energy 0.80 vs target 0.81, valence 0.62 vs target 0.83, acousticness 0.12, prefers non-acoustic.
+
+[7] Confidence: 0.94 (high) - top score 99% of max, 1 repair, no retries
+    lowered by:
+      -0.05 1 repair to the plan
+      -0.01 top score only 99% of max
+
+(run 987c57 logged to logs/agent.log)

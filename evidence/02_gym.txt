@@ -1,0 +1,72 @@
+$ python -m src.agent "hype songs for the gym" --offline
+# captured 2026-11-15 15:02 by `python -m scripts.capture_evidence` (offline, no API calls)
+# exit code: 0
+
+================================================================
+VibeMatch Agent  |  plan: offline  (--offline)
+Request: "hype songs for the gym"
+================================================================
+
+[1] Retrieved knowledge docs
+    workout.md         score 5.14   (context)
+    mood_driven.md     score 2.58   (mood)
+    song evidence: Gym Hero (2.66)
+
+[2] Profile (attempt 1)
+    genre=pop | mood=energetic | energy=0.89 | valence=0.62 | acoustic=no
+    mode=energy-focused | diverse=no
+
+[3] Repairs
+    - favorite_mood 'hype' -> 'energetic' (alias from knowledge base)
+
+[4] Self-check (1 attempt(s), using #1)
+    #1 initial plan
+       top: Gym Hero 7.39/8.5 -> pass
+
+[5] Top 5 recommendations
+----------------------------------------------------------------
+1. Gym Hero - Max Pulse                        Score: 7.39 / 8.5
+     + genre match: pop (+1.50)
+     + mood family match: intense ~ energetic (+0.75)
+     + energy 0.93 vs target 0.89 (+3.92)
+     + valence 0.77 vs target 0.62 (+0.75)
+     + acousticness 0.05, prefers non-acoustic (+0.47)
+2. Sunrise City - Neon Echo                    Score: 6.22 / 8.5
+     + genre match: pop (+1.50)
+     + no mood match: happy (+0.00)
+     + energy 0.82 vs target 0.89 (+3.76)
+     + valence 0.84 vs target 0.62 (+0.55)
+     + acousticness 0.18, prefers non-acoustic (+0.41)
+3. Fuego en la Plaza - Los Faroles             Score: 6.17 / 8.5
+     + no genre match: latin (+0.00)
+     + mood match: energetic (+1.50)
+     + energy 0.86 vs target 0.89 (+3.96)
+     + valence 0.88 vs target 0.62 (+0.43)
+     + acousticness 0.45, prefers non-acoustic (+0.28)
+4. Storm Runner - Voltline                     Score: 5.96 / 8.5
+     + no genre match: rock (+0.00)
+     + mood family match: intense ~ energetic (+0.75)
+     + energy 0.91 vs target 0.89 (+3.98)
+     + valence 0.48 vs target 0.62 (+0.78)
+     + acousticness 0.10, prefers non-acoustic (+0.45)
+5. Concrete Psalms - Verse Theory              Score: 5.80 / 8.5
+     + no genre match: hip-hop (+0.00)
+     + mood family match: confident ~ energetic (+0.75)
+     + energy 0.80 vs target 0.89 (+3.61)
+     + valence 0.62 vs target 0.62 (+1.00)
+     + acousticness 0.12, prefers non-acoustic (+0.44)
+
+[6] Explanation (template)
+    Based on [workout.md, mood_driven.md], I looked for pop / energetic songs around energy 0.89 and valence 0.62 with an electric sound.
+    #1 Gym Hero by Max Pulse: energy 0.93 vs target 0.89, genre match: pop, mood family match: intense ~ energetic.
+    #2 Sunrise City by Neon Echo: energy 0.82 vs target 0.89, genre match: pop, valence 0.84 vs target 0.62.
+    #3 Fuego en la Plaza by Los Faroles: energy 0.86 vs target 0.89, mood match: energetic, valence 0.88 vs target 0.62.
+    #4 Storm Runner by Voltline: energy 0.91 vs target 0.89, valence 0.48 vs target 0.62, mood family match: intense ~ energetic.
+    #5 Concrete Psalms by Verse Theory: energy 0.80 vs target 0.89, valence 0.62 vs target 0.62, mood family match: confident ~ energetic.
+
+[7] Confidence: 0.87 (high) - top score 87% of max, 1 repair, no retries
+    lowered by:
+      -0.08 top score only 87% of max
+      -0.05 1 repair to the plan
+
+(run e7c0bb logged to logs/agent.log)

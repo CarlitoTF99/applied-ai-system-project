@@ -1,0 +1,136 @@
+$ python -m src.agent "something chill for studying on a rainy night"   (LLM mode; 3 real runs)
+# Copied from logs/agent.log* (logs/ is git-ignored). This file is a saved record of real Gemini runs
+# made during development; scripts/capture_evidence.py does NOT regenerate it and never calls the API.
+# The API key is never logged.
+
+====================================================================================================
+Run 4e4bf7 - SUCCESSFUL LLM RUN: main model overloaded (504/503, retried 2s then 5s), fallback model wrote the plan; explain step hit 429 (not retried), fallback model wrote the explanation
+====================================================================================================
+2026-11-15 13:30:10 | INFO | run=4e4bf7 | step=start | Gemini model=gemini-3.8-flash fallback=gemini-3.5-flash-lite timeout=15s retries=2 backoff=2s/5s
+2026-11-15 13:30:10 | INFO | run=4e4bf7 | step=setup | loaded 20 songs and 11 knowledge docs
+2026-11-15 13:30:10 | INFO | run=4e4bf7 | step=start | request='something chill for studying on a rainy night' k=5 docs_k=3 llm=yes
+2026-11-15 13:30:10 | INFO | run=4e4bf7 | step=input | passed input guardrail
+2026-11-15 13:30:10 | INFO | run=4e4bf7 | step=retrieve | doc rainy_day.md score=5.742
+2026-11-15 13:30:10 | INFO | run=4e4bf7 | step=retrieve | doc studying.md score=5.361
+2026-11-15 13:30:10 | INFO | run=4e4bf7 | step=retrieve | doc road_trip.md score=2.185
+2026-11-15 13:30:10 | INFO | run=4e4bf7 | step=retrieve | song Library Rain score=3.866
+2026-11-15 13:30:10 | INFO | run=4e4bf7 | step=retrieve | song Midnight Coding score=3.704
+2026-11-15 13:30:10 | INFO | run=4e4bf7 | step=retrieve | song Night Drive Loop score=2.494
+2026-11-15 13:30:10 | INFO | run=4e4bf7 | step=retrieve | song Rust in the Rain score=2.099
+2026-11-15 13:30:10 | INFO | run=4e4bf7 | step=retrieve | song Velvet Hours score=1.852
+2026-11-15 13:30:10 | INFO | run=4e4bf7 | step=plan | doc-weighted energy=0.41 valence=0.53 from rainy_day.md(5.74), studying.md(5.36), road_trip.md(2.19)
+2026-11-15 13:30:10 | INFO | run=4e4bf7 | step=plan | mood 'chill' named in request
+2026-11-15 13:30:10 | INFO | run=4e4bf7 | step=plan | mode=balanced (top doc rainy_day.md)
+2026-11-15 13:30:10 | DEBUG | run=4e4bf7 | step=plan | genre votes [('lofi', 14.89), ('jazz', 9.46), ('ambient', 8.27), ('blues', 5.64), ('folk', 5.55), ('classical', 3.75), ('synthwave', 3.0), ('country', 2.19), ('indie pop', 1.97), ('rock', 1.31), ('reggae', 1.09), ('r&b', 0.93)]
+2026-11-15 13:30:10 | DEBUG | run=4e4bf7 | step=plan | mood votes [('chill', 14.35), ('relaxed', 9.46), ('focused', 5.36), ('sad', 5.07), ('melancholy', 4.59), ('happy', 2.19), ('hopeful', 1.97), ('carefree', 1.75), ('nostalgic', 1.53), ('moody', 1.25), ('romantic', 0.93)]
+2026-11-15 13:30:23 | WARNING | run=4e4bf7 | step=plan | Gemini gemini-3.8-flash attempt 1/3 failed after 13.12s: ServerError: 504 DEADLINE_EXCEEDED. {'error': {'code': 504, 'message': 'Deadline expired before operation could complete.', 'status': 'DEADLINE_EXCEEDED'}}; retrying in 2s
+2026-11-15 13:30:38 | WARNING | run=4e4bf7 | step=plan | Gemini gemini-3.8-flash attempt 2/3 failed after 13.14s: ServerError: 504 DEADLINE_EXCEEDED. {'error': {'code': 504, 'message': 'Deadline expired before operation could complete.', 'status': 'DEADLINE_EXCEEDED'}}; retrying in 5s
+2026-11-15 13:30:44 | WARNING | run=4e4bf7 | step=plan | Gemini gemini-3.8-flash attempt 3/3 failed after 0.34s: ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}; no retries left
+2026-11-15 13:30:44 | WARNING | run=4e4bf7 | step=plan | trying fallback model gemini-3.5-flash-lite
+2026-11-15 13:30:44 | INFO | run=4e4bf7 | step=plan | Gemini gemini-3.5-flash-lite attempt 1/1 succeeded in 0.77s
+2026-11-15 13:30:44 | DEBUG | run=4e4bf7 | step=plan | raw Gemini output: {
+  "favorite_genre": "lofi",
+  "favorite_mood": "chill",
+  "target_energy": 0.32,
+  "target_valence": 0.55,
+  "likes_acoustic": true,
+  "mode": "genre-first",
+  "diverse": false,
+  "rationale": "Combining rainy night vibes and studying calls for low energy, acoustic-heavy, and focused lofi or ambient tracks that maintain a cozy, calm atmosphere."
+}
+2026-11-15 13:30:44 | INFO | run=4e4bf7 | step=plan | llm plan: {'favorite_genre': 'lofi', 'favorite_mood': 'chill', 'target_energy': 0.32, 'target_valence': 0.55, 'likes_acoustic': True, 'mode': 'genre-first', 'diverse': False, 'rationale': 'Combining rainy night vibes and studying calls for low energy, acoustic-heavy, and focused lofi or ambient tracks that maintain a cozy, calm atmosphere.'}
+2026-11-15 13:30:44 | INFO | run=4e4bf7 | step=validate | LLM rationale: Combining rainy night vibes and studying calls for low energy, acoustic-heavy, and focused lofi or ambient tracks that maintain a cozy, calm atmosphere.
+2026-11-15 13:30:44 | INFO | run=4e4bf7 | step=validate | validated prefs: {'favorite_genre': 'lofi', 'favorite_mood': 'chill', 'target_energy': 0.32, 'target_valence': 0.55, 'likes_acoustic': True, 'mode': 'genre-first', 'diverse': False}
+2026-11-15 13:30:44 | INFO | run=4e4bf7 | step=selfcheck | expected ranges from rainy_day.md: energy 0.25-0.50, valence 0.20-0.65
+2026-11-15 13:30:44 | INFO | run=4e4bf7 | step=act | attempt 1 (initial plan): prefs={'favorite_genre': 'lofi', 'favorite_mood': 'chill', 'target_energy': 0.32, 'target_valence': 0.55, 'likes_acoustic': True, 'mode': 'genre-first', 'diverse': False}
+2026-11-15 13:30:44 | INFO | run=4e4bf7 | step=act | attempt 1 top-3: Library Rain 8.38, Midnight Coding 8.17, Focus Flow 7.50 (max 8.5)
+2026-11-15 13:30:44 | INFO | run=4e4bf7 | step=selfcheck | attempt 1 passed self-check
+2026-11-15 13:30:44 | INFO | run=4e4bf7 | step=selfcheck | using attempt 1 of 1 (0 issue(s))
+2026-11-15 13:30:58 | WARNING | run=4e4bf7 | step=explain | Gemini gemini-3.8-flash attempt 1/3 failed after 13.14s: ServerError: 504 DEADLINE_EXCEEDED. {'error': {'code': 504, 'message': 'Deadline expired before operation could complete.', 'status': 'DEADLINE_EXCEEDED'}}; retrying in 2s
+2026-11-15 13:31:00 | WARNING | run=4e4bf7 | step=explain | Gemini gemini-3.8-flash attempt 2/3 failed after 0.08s: ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://aistudio.g; not retryable (client error)
+2026-11-15 13:31:00 | WARNING | run=4e4bf7 | step=explain | trying fallback model gemini-3.5-flash-lite
+2026-11-15 13:31:01 | INFO | run=4e4bf7 | step=explain | Gemini gemini-3.5-flash-lite attempt 1/1 succeeded in 0.91s
+2026-11-15 13:31:01 | DEBUG | run=4e4bf7 | step=explain | raw Gemini output: Here are some chill lofi tracks tailored for your study session tonight, matching your need for a calm atmosphere [rainy_day.md]. 
+
+Library Rain by Paper Lanterns hits the mark with an exact genre match for lofi, a perfect chill mood, and high acousticness that fits your preferences. Midnight Coding by LoRoom also features a great lofi genre match and a relaxed chill mood with low, steady energy levels ideal for deep focus [studying.md]. Finally, Focus Flow by LoRoom brings a supportive focused mood family match alongside strong lofi elements to keep you locked into your work without distractions.
+2026-11-15 13:31:01 | INFO | run=4e4bf7 | step=explain | LLM explanation passed output guardrail
+
+====================================================================================================
+Run 4df554 - main model 504s retried; fallback model gemini-2.5-flash-lite returned 404 (retired, not retried) -> offline plan and template explanation
+====================================================================================================
+2026-11-15 13:26:35 | INFO | run=4df554 | step=start | Gemini model=gemini-3.8-flash fallback=gemini-2.5-flash-lite timeout=15s retries=2 backoff=2s/5s
+2026-11-15 13:26:35 | INFO | run=4df554 | step=setup | loaded 20 songs and 11 knowledge docs
+2026-11-15 13:26:35 | INFO | run=4df554 | step=start | request='something chill for studying on a rainy night' k=5 docs_k=3 llm=yes
+2026-11-15 13:26:35 | INFO | run=4df554 | step=input | passed input guardrail
+2026-11-15 13:26:35 | INFO | run=4df554 | step=retrieve | doc rainy_day.md score=5.742
+2026-11-15 13:26:35 | INFO | run=4df554 | step=retrieve | doc studying.md score=5.361
+2026-11-15 13:26:35 | INFO | run=4df554 | step=retrieve | doc road_trip.md score=2.185
+2026-11-15 13:26:35 | INFO | run=4df554 | step=retrieve | song Library Rain score=3.866
+2026-11-15 13:26:35 | INFO | run=4df554 | step=retrieve | song Midnight Coding score=3.704
+2026-11-15 13:26:35 | INFO | run=4df554 | step=retrieve | song Night Drive Loop score=2.494
+2026-11-15 13:26:35 | INFO | run=4df554 | step=retrieve | song Rust in the Rain score=2.099
+2026-11-15 13:26:35 | INFO | run=4df554 | step=retrieve | song Velvet Hours score=1.852
+2026-11-15 13:26:35 | INFO | run=4df554 | step=plan | doc-weighted energy=0.41 valence=0.53 from rainy_day.md(5.74), studying.md(5.36), road_trip.md(2.19)
+2026-11-15 13:26:35 | INFO | run=4df554 | step=plan | mood 'chill' named in request
+2026-11-15 13:26:35 | INFO | run=4df554 | step=plan | mode=balanced (top doc rainy_day.md)
+2026-11-15 13:26:35 | DEBUG | run=4df554 | step=plan | genre votes [('lofi', 14.89), ('jazz', 9.46), ('ambient', 8.27), ('blues', 5.64), ('folk', 5.55), ('classical', 3.75), ('synthwave', 3.0), ('country', 2.19), ('indie pop', 1.97), ('rock', 1.31), ('reggae', 1.09), ('r&b', 0.93)]
+2026-11-15 13:26:35 | DEBUG | run=4df554 | step=plan | mood votes [('chill', 14.35), ('relaxed', 9.46), ('focused', 5.36), ('sad', 5.07), ('melancholy', 4.59), ('happy', 2.19), ('hopeful', 1.97), ('carefree', 1.75), ('nostalgic', 1.53), ('moody', 1.25), ('romantic', 0.93)]
+2026-11-15 13:26:48 | WARNING | run=4df554 | step=plan | Gemini gemini-3.8-flash attempt 1/3 failed after 13.19s: ServerError: 504 DEADLINE_EXCEEDED. {'error': {'code': 504, 'message': 'Deadline expired before operation could complete.', 'status': 'DEADLINE_EXCEEDED'}}; retrying in 2s
+2026-11-15 13:27:03 | WARNING | run=4df554 | step=plan | Gemini gemini-3.8-flash attempt 2/3 failed after 13.14s: ServerError: 504 DEADLINE_EXCEEDED. {'error': {'code': 504, 'message': 'Deadline expired before operation could complete.', 'status': 'DEADLINE_EXCEEDED'}}; retrying in 5s
+2026-11-15 13:27:23 | WARNING | run=4df554 | step=plan | Gemini gemini-3.8-flash attempt 3/3 failed after 14.52s: ServerError: 504 DEADLINE_EXCEEDED. {'error': {'code': 504, 'message': 'Deadline expired before operation could complete.', 'status': 'DEADLINE_EXCEEDED'}}; no retries left
+2026-11-15 13:27:23 | WARNING | run=4df554 | step=plan | trying fallback model gemini-2.5-flash-lite
+2026-11-15 13:27:23 | WARNING | run=4df554 | step=plan | Gemini gemini-2.5-flash-lite attempt 1/1 failed after 0.09s: ClientError: 404 NOT_FOUND. {'error': {'code': 404, 'message': 'This model models/gemini-2.5-flash-lite is no longer available to new users. Please update your code to use models/gemini-3.5-flash-lite for the late; not retryable (model not found)
+2026-11-15 13:27:23 | WARNING | run=4df554 | step=plan | all Gemini attempts failed; using offline fallback
+2026-11-15 13:27:23 | WARNING | run=4df554 | step=plan | LLM plan unavailable; falling back to offline plan
+2026-11-15 13:27:23 | INFO | run=4df554 | step=plan | offline plan: {'favorite_genre': 'lofi', 'favorite_mood': 'chill', 'target_energy': 0.41, 'target_valence': 0.53, 'likes_acoustic': True, 'mode': 'balanced', 'diverse': False}
+2026-11-15 13:27:23 | INFO | run=4df554 | step=validate | validated prefs: {'favorite_genre': 'lofi', 'favorite_mood': 'chill', 'target_energy': 0.41, 'target_valence': 0.53, 'likes_acoustic': True, 'mode': 'balanced', 'diverse': False}
+2026-11-15 13:27:23 | INFO | run=4df554 | step=selfcheck | expected ranges from rainy_day.md: energy 0.25-0.50, valence 0.20-0.65
+2026-11-15 13:27:23 | INFO | run=4df554 | step=act | attempt 1 (initial plan): prefs={'favorite_genre': 'lofi', 'favorite_mood': 'chill', 'target_energy': 0.41, 'target_valence': 0.53, 'likes_acoustic': True, 'mode': 'balanced', 'diverse': False}
+2026-11-15 13:27:23 | INFO | run=4df554 | step=act | attempt 1 top-3: Midnight Coding 8.33, Library Rain 8.25, Focus Flow 7.32 (max 8.5)
+2026-11-15 13:27:23 | INFO | run=4df554 | step=selfcheck | attempt 1 passed self-check
+2026-11-15 13:27:23 | INFO | run=4df554 | step=selfcheck | using attempt 1 of 1 (0 issue(s))
+2026-11-15 13:27:36 | WARNING | run=4df554 | step=explain | Gemini gemini-3.8-flash attempt 1/3 failed after 13.14s: ServerError: 504 DEADLINE_EXCEEDED. {'error': {'code': 504, 'message': 'Deadline expired before operation could complete.', 'status': 'DEADLINE_EXCEEDED'}}; retrying in 2s
+2026-11-15 13:27:38 | WARNING | run=4df554 | step=explain | Gemini gemini-3.8-flash attempt 2/3 failed after 0.33s: ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}; retrying in 5s
+2026-11-15 13:27:56 | WARNING | run=4df554 | step=explain | Gemini gemini-3.8-flash attempt 3/3 failed after 13.12s: ServerError: 504 DEADLINE_EXCEEDED. {'error': {'code': 504, 'message': 'Deadline expired before operation could complete.', 'status': 'DEADLINE_EXCEEDED'}}; no retries left
+2026-11-15 13:27:56 | WARNING | run=4df554 | step=explain | all Gemini attempts failed; using offline fallback
+2026-11-15 13:27:56 | WARNING | run=4df554 | step=explain | LLM explanation unavailable; using template
+2026-11-15 13:27:56 | INFO | run=4df554 | step=explain | template explanation used; output guardrail check: ok
+
+====================================================================================================
+Run 3f3be6 - every attempt failed (503/504), no fallback model configured -> offline plan and template explanation
+====================================================================================================
+2026-11-15 13:17:28 | INFO | run=3f3be6 | step=start | Gemini model=gemini-3.8-flash fallback=none timeout=30s retries=2 backoff=2s/5s
+2026-11-15 13:17:28 | INFO | run=3f3be6 | step=setup | loaded 20 songs and 11 knowledge docs
+2026-11-15 13:17:28 | INFO | run=3f3be6 | step=start | request='something chill for studying on a rainy night' k=5 docs_k=3 llm=yes
+2026-11-15 13:17:28 | INFO | run=3f3be6 | step=input | passed input guardrail
+2026-11-15 13:17:28 | INFO | run=3f3be6 | step=retrieve | doc rainy_day.md score=5.742
+2026-11-15 13:17:28 | INFO | run=3f3be6 | step=retrieve | doc studying.md score=5.361
+2026-11-15 13:17:28 | INFO | run=3f3be6 | step=retrieve | doc road_trip.md score=2.185
+2026-11-15 13:17:28 | INFO | run=3f3be6 | step=retrieve | song Library Rain score=3.866
+2026-11-15 13:17:28 | INFO | run=3f3be6 | step=retrieve | song Midnight Coding score=3.704
+2026-11-15 13:17:28 | INFO | run=3f3be6 | step=retrieve | song Night Drive Loop score=2.494
+2026-11-15 13:17:28 | INFO | run=3f3be6 | step=retrieve | song Rust in the Rain score=2.099
+2026-11-15 13:17:28 | INFO | run=3f3be6 | step=retrieve | song Velvet Hours score=1.852
+2026-11-15 13:17:28 | INFO | run=3f3be6 | step=plan | doc-weighted energy=0.41 valence=0.53 from rainy_day.md(5.74), studying.md(5.36), road_trip.md(2.19)
+2026-11-15 13:17:28 | INFO | run=3f3be6 | step=plan | mood 'chill' named in request
+2026-11-15 13:17:28 | INFO | run=3f3be6 | step=plan | mode=balanced (top doc rainy_day.md)
+2026-11-15 13:17:28 | DEBUG | run=3f3be6 | step=plan | genre votes [('lofi', 14.89), ('jazz', 9.46), ('ambient', 8.27), ('blues', 5.64), ('folk', 5.55), ('classical', 3.75), ('synthwave', 3.0), ('country', 2.19), ('indie pop', 1.97), ('rock', 1.31), ('reggae', 1.09), ('r&b', 0.93)]
+2026-11-15 13:17:28 | DEBUG | run=3f3be6 | step=plan | mood votes [('chill', 14.35), ('relaxed', 9.46), ('focused', 5.36), ('sad', 5.07), ('melancholy', 4.59), ('happy', 2.19), ('hopeful', 1.97), ('carefree', 1.75), ('nostalgic', 1.53), ('moody', 1.25), ('romantic', 0.93)]
+2026-11-15 13:17:31 | WARNING | run=3f3be6 | step=plan | Gemini gemini-3.8-flash attempt 1/3 failed after 2.91s: ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}; retrying in 2s
+2026-11-15 13:17:38 | WARNING | run=3f3be6 | step=plan | Gemini gemini-3.8-flash attempt 2/3 failed after 4.55s: ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}; retrying in 5s
+2026-11-15 13:18:11 | WARNING | run=3f3be6 | step=plan | Gemini gemini-3.8-flash attempt 3/3 failed after 28.48s: ServerError: 504 DEADLINE_EXCEEDED. {'error': {'code': 504, 'message': 'Deadline expired before operation could complete.', 'status': 'DEADLINE_EXCEEDED'}}; no retries left
+2026-11-15 13:18:11 | WARNING | run=3f3be6 | step=plan | all Gemini attempts failed; using offline fallback
+2026-11-15 13:18:11 | WARNING | run=3f3be6 | step=plan | LLM plan unavailable; falling back to offline plan
+2026-11-15 13:18:11 | INFO | run=3f3be6 | step=plan | offline plan: {'favorite_genre': 'lofi', 'favorite_mood': 'chill', 'target_energy': 0.41, 'target_valence': 0.53, 'likes_acoustic': True, 'mode': 'balanced', 'diverse': False}
+2026-11-15 13:18:11 | INFO | run=3f3be6 | step=validate | validated prefs: {'favorite_genre': 'lofi', 'favorite_mood': 'chill', 'target_energy': 0.41, 'target_valence': 0.53, 'likes_acoustic': True, 'mode': 'balanced', 'diverse': False}
+2026-11-15 13:18:11 | INFO | run=3f3be6 | step=selfcheck | expected ranges from rainy_day.md: energy 0.25-0.50, valence 0.20-0.65
+2026-11-15 13:18:11 | INFO | run=3f3be6 | step=act | attempt 1 (initial plan): prefs={'favorite_genre': 'lofi', 'favorite_mood': 'chill', 'target_energy': 0.41, 'target_valence': 0.53, 'likes_acoustic': True, 'mode': 'balanced', 'diverse': False}
+2026-11-15 13:18:11 | INFO | run=3f3be6 | step=act | attempt 1 top-3: Midnight Coding 8.33, Library Rain 8.25, Focus Flow 7.32 (max 8.5)
+2026-11-15 13:18:11 | INFO | run=3f3be6 | step=selfcheck | attempt 1 passed self-check
+2026-11-15 13:18:11 | INFO | run=3f3be6 | step=selfcheck | using attempt 1 of 1 (0 issue(s))
+2026-11-15 13:18:39 | WARNING | run=3f3be6 | step=explain | Gemini gemini-3.8-flash attempt 1/3 failed after 28.14s: ServerError: 504 DEADLINE_EXCEEDED. {'error': {'code': 504, 'message': 'Deadline expired before operation could complete.', 'status': 'DEADLINE_EXCEEDED'}}; retrying in 2s
+2026-11-15 13:18:43 | WARNING | run=3f3be6 | step=explain | Gemini gemini-3.8-flash attempt 2/3 failed after 1.47s: ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}; retrying in 5s
+2026-11-15 13:19:16 | WARNING | run=3f3be6 | step=explain | Gemini gemini-3.8-flash attempt 3/3 failed after 28.05s: ServerError: 504 DEADLINE_EXCEEDED. {'error': {'code': 504, 'message': 'Deadline expired before operation could complete.', 'status': 'DEADLINE_EXCEEDED'}}; no retries left
+2026-11-15 13:19:16 | WARNING | run=3f3be6 | step=explain | all Gemini attempts failed; using offline fallback
+2026-11-15 13:19:16 | WARNING | run=3f3be6 | step=explain | LLM explanation unavailable; using template
+2026-11-15 13:19:16 | INFO | run=3f3be6 | step=explain | template explanation used; output guardrail check: ok

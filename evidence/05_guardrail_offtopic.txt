@@ -1,0 +1,5 @@
+$ python -m src.agent "what's the weather tomorrow" --offline
+# captured 2026-11-15 15:02 by `python -m scripts.capture_evidence` (offline, no API calls)
+# exit code: 2
+
+I can only help with music recommendations - try describing a mood, activity, or genre.
